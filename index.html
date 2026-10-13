@@ -18,19 +18,19 @@
         
         <!-- 1. Brújula -->
         <div id="compass-container" class="banner-item compass-item" title="Restaurar Norte">
-            <img id="compass-icon" src="ui/brujula.png" alt="Brújula" />
+            <img id="compass-icon" src="ui-icons/brujula.png" alt="Brújula" />
         </div>
 
         <!-- 2. Escala Compacta -->
         <div id="scale-container" class="banner-item scale-item">
-            <img src="ui/fi-rr-measuring-tape.svg" alt="Escala" class="scale-icon" />
+            <img src="ui-icons/fi-rr-measuring-tape.svg" alt="Escala" class="scale-icon" />
             <span id="scale-text">-- m</span>
         </div>
 
         <!-- 3. Buscador Integrado Inline -->
         <div id="banner-search-container" class="banner-item search-item">
             <button id="btn-banner-search" class="search-toggle-btn" title="Buscar ubicación">
-                <img src="ui/fi-rr-search.svg" alt="Buscar" class="search-icon-img" />
+                <img src="ui-icons/fi-rr-search.svg" alt="Buscar" class="search-icon-img" />
             </button>
             <input type="text" id="input-banner-search" class="banner-search-input hidden" placeholder="Buscar..." autocomplete="off" enterkeyhint="search" />
             
@@ -42,19 +42,19 @@
 
     <!-- Elemento visual del Cursor Central en el mapa -->
     <div id="map-center-cursor" class="map-cursor-container">
-        <img src="ui/cen-map.svg" alt="Cursor otromundo">
+        <img src="ui-icons/cen-map.svg" alt="Cursor otromundo">
     </div>
 
     <!-- Botón flotante para recentrar el GPS (oculto por defecto) -->
     <button id="btn-recenter" class="recenter-float-btn hidden" title="Recentrar GPS">
-        <img src="ui/fi-rr-location-arrow.svg" alt="Recentrar">
+        <img src="ui-icons/fi-rr-location-arrow.svg" alt="Recentrar">
     </button>
 
     <!-- Panel deslizante de Selección de Mapas (Media pantalla) -->
     <div id="layer-selector-modal">
         <div class="selector-header">
             <button id="btn-back" title="Volver">
-                <img src="ui/fi-rr-left.svg" alt="Volver">
+                <img src="ui-icons/fi-rr-left.svg" alt="Volver">
             </button>
             <h4>SELECCIONAR MAPA</h4>
             <div style="width: 40px;"></div>
@@ -72,7 +72,7 @@
         <!-- Cabecera del panel -->
         <div class="panel-header">
             <button id="btn-close-panel" class="back-btn" title="Volver">
-                <img src="ui/fi-rr-left.svg" alt="Volver">
+                <img src="ui-icons/fi-rr-left.svg" alt="Volver">
             </button>
             <h2>Centro de Control</h2>
             <div style="width: 40px;"></div>
@@ -85,7 +85,7 @@
             <div class="card-accordion">
                 <div class="accordion-header" onclick="toggleAccordion(this)">
                     <div class="accordion-title">
-                        <img src="ui/fi-rr-settings-sliders.svg" width="20" height="20" alt="Ajustes">
+                        <img src="ui-icons/fi-rr-settings-sliders.svg" width="20" height="20" alt="Ajustes">
                         <span>Ajustes Visuales y Estilo</span>
                     </div>
                     <span class="accordion-arrow">▼</span>
@@ -131,7 +131,7 @@
 
                     <!-- Botón de Validar / Guardar dentro de la tarjeta -->
                     <button id="btn-save-settings" class="action-btn-save">
-                        <img src="ui/fi-rr-autosave.svg" alt="Guardar">
+                        <img src="ui-icons/fi-rr-autosave.svg" alt="Guardar">
                         <span>Guardar Ajustes</span>
                     </button>
                 </div>
@@ -154,7 +154,7 @@
         <header class="top-bar">
             <div class="header-title-group" style="display: flex; align-items: center; gap: 8px;">
                 <button id="btn-back-to-control" class="back-btn" title="Volver al Centro de Control">
-                    <img src="ui/fi-rr-left.svg" alt="Volver">
+                    <img src="ui-icons/fi-rr-left.svg" alt="Volver">
                 </button>
                 <img src="./ui-icons/fi-rr-global-research.svg" alt="Búsqueda PDI" class="icon-inline">
                 <div class="header-title">Busqueda de puntos de interes</div>
@@ -166,7 +166,7 @@
             </div>
         </header>
 
-                <!-- BOTÓN ÚNICO DE AJUSTE DE ZONA DE BÚSQUEDA -->
+        <!-- BOTÓN ÚNICO DE AJUSTE DE ZONA DE BÚSQUEDA -->
         <div class="radius-control-panel" style="text-align: center; padding: 16px;">
             <button id="btn-open-spatial-modal" style="width: 100%; background: rgba(0,229,255,0.15); border: 1px solid var(--primary-cyan); color: var(--primary-cyan); padding: 12px; border-radius: 12px; font-size: 0.95rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px;">
                 <img src="./ui-icons/fi-rr-map.svg" alt="Mapa" style="width: 20px; height: 20px; filter: brightness(0) saturate(100%) invert(77%) sepia(87%) saturate(1637%) hue-rotate(155deg) brightness(103%) contrast(101%);">
@@ -178,7 +178,6 @@
             <input type="text" id="tree-search-filter" placeholder="Buscar categoría o PDI actual..." style="width:100%; padding:10px 12px; background:#121212; border:1px solid var(--border-color); color:white; border-radius:10px; outline:none; font-size:0.9rem;">
         </div>
 
-        
         <!-- BARRA DE PERFILES -->
         <div class="profile-tabs-bar">
             <button class="profile-tab active" data-profile="hiking" title="Senderismo">
@@ -262,27 +261,27 @@
     <!-- Barra de herramientas inferior -->
     <div id="bottom-toolbar">
         <button id="btn-menu" class="tool-btn" title="Centro de Control">
-            <img src="ui/fi-rr-menu-burger.svg" alt="Menú">
+            <img src="ui-icons/fi-rr-menu-burger.svg" alt="Menú">
         </button>
 
         <button id="btn-map" class="tool-btn" title="Capas de Mapa">
-            <img src="ui/fi-rr-map.svg" alt="Mapa">
+            <img src="ui-icons/fi-rr-map.svg" alt="Mapa">
         </button>
         
         <button id="btn-gps" class="tool-btn" title="GPS">
-            <img id="gps-icon" src="ui/fi-rr-location-crosshairs-slash.svg" alt="GPS Inactivo">
+            <img id="gps-icon" src="ui-icons/fi-rr-location-crosshairs-slash.svg" alt="GPS Inactivo">
         </button>
         
         <button id="btn-zoomin" class="tool-btn" title="Acercar">
-            <img src="ui/fi-rr-zoom-in.svg" alt="Acercar">
+            <img src="ui-icons/fi-rr-zoom-in.svg" alt="Acercar">
         </button>
         
         <button id="btn-zoomout" class="tool-btn" title="Alejar">
-            <img src="ui/fi-rr-zoom-out.svg" alt="Alejar">
+            <img src="ui-icons/fi-rr-zoom-out.svg" alt="Alejar">
         </button>
     </div>
 
-            <!-- PANEL INFERIOR FLOTANTE PARA AJUSTAR LA ZONA DE BÚSQUEDA -->
+    <!-- PANEL INFERIOR FLOTANTE PARA AJUSTAR LA ZONA DE BÚSQUEDA -->
     <div id="spatial-adjustment-modal" class="fullscreen-panel hidden" style="z-index: 10005; background: transparent; justify-content: flex-end;">
         <div style="background: rgba(18, 18, 20, 0.95); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-top: 1px solid var(--primary-cyan); border-top-left-radius: 24px; border-top-right-radius: 24px; padding: 20px; width: 100%; box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.7); display: flex; flex-direction: column; gap: 14px;">
             
@@ -304,8 +303,6 @@
             <button id="btn-confirm-spatial" style="width: 100%; background: var(--primary-cyan); color: #121212; border: none; padding: 12px; border-radius: 12px; font-weight: bold; font-size: 0.95rem; cursor: pointer; margin-top: 4px;">Aceptar y Guardar</button>
         </div>
     </div>
-
-
 
     <!-- Scripts -->
     <script src="https://unpkg.com/maplibre-gl@5.1.0/dist/maplibre-gl.js"></script>
