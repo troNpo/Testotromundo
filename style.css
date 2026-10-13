@@ -918,3 +918,165 @@ body.is-editing .btn-toggle-visibility {
 .category-node.active > .category-row .category-arrow {
     transform: rotate(90deg);
 }
+
+/* --- PANEL DE RESULTADOS DE BÚSQUEDA DE POIs --- */
+#results-panel {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-color: var(--bg-main);
+    color: #ffffff;
+    z-index: 10002;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+}
+
+.categories-nav-wrapper {
+    position: relative;
+    background: #1e1e1e;
+    border-bottom: 1px solid #333;
+    padding: 8px 12px;
+    flex-shrink: 0;
+}
+
+.categories-chips-scroll {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    white-space: nowrap;
+    scroll-behavior: smooth;
+}
+
+.categories-chips-scroll::-webkit-scrollbar {
+    display: none;
+}
+
+.category-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #2a2a2a;
+    border: 1px solid #444;
+    padding: 6px 12px;
+    border-radius: 16px;
+    font-size: 13px;
+    cursor: pointer;
+    flex-shrink: 0;
+    color: var(--text-muted);
+    transition: background 0.2s, border-color 0.2s;
+}
+
+.category-chip.active {
+    background: rgba(0, 229, 255, 0.15);
+    border-color: var(--primary-cyan);
+    color: var(--primary-cyan);
+    font-weight: 600;
+}
+
+.nodes-vertical-scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    background: #181818;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.node-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.node-name {
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+.node-meta {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+/* Cabecera específica del panel de resultados y botón de retroceso (#btn-back) */
+#results-panel .app-header {
+    background-color: var(--bg-card);
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-main);
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+    z-index: 10;
+    flex-shrink: 0;
+}
+
+#results-panel .header-title-group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+#results-panel .icon-btn,
+#results-panel button {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+}
+
+#results-panel .icon-btn:hover,
+#results-panel button:hover {
+    background: rgba(0, 229, 255, 0.1);
+}
+
+#results-panel img,
+#results-panel .icon-btn img,
+#results-panel button img {
+    width: 20px;
+    height: 20px;
+    filter: brightness(0) saturate(100%) invert(77%) sepia(87%) saturate(1637%) hue-rotate(155deg) brightness(103%) contrast(101%);
+    display: block;
+}
+
+.badge-container {
+    position: relative;
+}
+
+.badge {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    background: #121212;
+    color: var(--primary-cyan);
+    font-size: 10px;
+    font-weight: bold;
+    padding: 1px 4px;
+    border-radius: 8px;
+    line-height: 1;
+    border: 1px solid var(--primary-cyan);
+}
+
+/* --- OCULTAR CONTROLES NATIVOS DE MAPLIBRE --- */
+.maplibregl-ctrl-top-right,
+.maplibregl-ctrl-top-left,
+.maplibregl-ctrl-bottom-right,
+.maplibregl-ctrl-bottom-left {
+    display: none !important;
+}
