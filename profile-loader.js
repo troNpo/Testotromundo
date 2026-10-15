@@ -84,21 +84,21 @@ async function cargarPerfilJSON(nombrePerfil) {
 function fusionarConCustomsLocales(nombrePerfil) {
     if (!datosPerfilActual) return;
     const clavePerfil = Object.keys(datosPerfilActual)[0];
+    if (!datosPerfilActual[clavePerfil] || !datosPerfilActual[clavePerfil].subcategorias) return;
+    
     const subcategorias = datosPerfilActual[clavePerfil].subcategorias;
 
     try {
         const customsGuardados = JSON.parse(localStorage.getItem(getStorageKeyCustom(nombrePerfil))) || {};
         Object.keys(customsGuardados).forEach(subKey => {
             if (subcategorias[subKey]) {
-                // Añadir elementos personalizados que no existan previamente
-                customsGuardados[subKey].forEach(elemCustom => {
+                customsGuardados[subKey].elementos.forEach(elemCustom => {
                     const existe = subcategorias[subKey].elementos.some(e => e.tag === elemCustom.tag);
                     if (!existe) {
                         subcategorias[subKey].elementos.push(elemCustom);
                     }
                 });
             } else {
-                // Si la subcategoría entera es nueva
                 subcategorias[subKey] = customsGuardados[subKey];
             }
         });
@@ -114,16 +114,20 @@ function renderizarArbolDesdeJSON(jsonData) {
     const clavePerfil = Object.keys(jsonData)[0];
     const datosPerfil = jsonData[clavePerfil];
 
-    if (!datosPerfil || !datosPerfil.subcategorias) {
-        container.innerHTML = "<p style='color: #ff5252; padding: 15px;'>Estructura de JSON no válida.</p>";
+    // Verificación robusta para asegurar que accedemos al nivel de subcategorías correctamente
+    const subcategorias = datosPerfil && datosPerfil.subcategorias ? datosPerfil.subcategorias : jsonData;
+
+    if (!subcategorias || Object.keys(subcategorias).length === 0) {
+        container.innerHTML = "<p style='color: #ff5252; padding: 15px;'>Estructura de JSON no válida o vacía.</p>";
         return;
     }
 
-    const subcategorias = datosPerfil.subcategorias;
     const ocultosGuardados = JSON.parse(localStorage.getItem(getStorageKeyHidden(perfilActualNombre))) || [];
 
     Object.keys(subcategorias).forEach(subKey => {
         const subCat = subcategorias[subKey];
+        if (!subCat) return;
+
         const nodeDiv = document.createElement("div");
         nodeDiv.className = "category-node";
         nodeDiv.setAttribute("data-subkey", subKey);
@@ -136,22 +140,21 @@ function renderizarArbolDesdeJSON(jsonData) {
         rowDiv.className = "category-row";
 
         const hasElements = subCat.elementos && subCat.elementos.length > 0;
+        const nombreCategoria = subCat.nombre_es || subKey;
 
-        // Estructura inyectando el SVG de la flecha directamente desde JS
         rowDiv.innerHTML = `
             <div class="category-left">
                 <button class="btn-toggle-visibility" title="Ocultar/Mostrar categoría">
                     <img src="./ui-icons/fi-rr-eye.svg" alt="Visibilidad">
                 </button>
                 <input type="checkbox" class="cat-checkbox">
-                <span>${subCat.nombre_es}</span>
+                <span>${nombreCategoria}</span>
             </div>
             <div class="category-arrow" style="width: 16px; height: 16px; display: inline-block; transition: transform 0.2s ease; margin-left: auto; flex-shrink: 0; ${hasElements ? '' : 'visibility: hidden;'}">
                 <img src="./ui-icons/fi-rr-angle-circle-right.svg" alt="Desplegar" style="width: 100%; height: 100%; filter: brightness(0) saturate(100%) invert(77%) sepia(87%) saturate(1637%) hue-rotate(155deg) brightness(103%) contrast(101%); display: block;">
             </div>
         `;
 
-        // Control de visibilidad (ojo)
         const btnEye = rowDiv.querySelector(".btn-toggle-visibility");
         btnEye.addEventListener("click", (e) => {
             e.stopPropagation();
@@ -170,7 +173,7 @@ function renderizarArbolDesdeJSON(jsonData) {
             });
 
             subCat.elementos.forEach(elem => {
-                const [tagKey, tagValue] = elem.tag.includes("=") ? elem.tag.split("=") : [elem.tag, "yes"];
+                const [tagKey, tagValue] = elem.tag.includes("=") ? elem.tag.split("=").map(s => s.trim()) : [elem.tag.trim(), "yes"];
 
                 const mapRow = document.createElement("div");
                 mapRow.className = "category-row category-leaf";
@@ -189,7 +192,6 @@ function renderizarArbolDesdeJSON(jsonData) {
             nodeDiv.appendChild(childrenDiv);
         }
 
-        // Cascada de selección en checkboxes
         checkbox.addEventListener("change", () => {
             const descendantChecks = nodeDiv.querySelectorAll("input[type='checkbox']");
             descendantChecks.forEach(ch => {
@@ -259,10 +261,8 @@ async function abrirModalSelectorMaestro() {
             
             filas.forEach(row => {
                 const texto = row.textContent.toLowerCase();
-                // Comprueba si el texto incluye lo que escribes
                 if (texto.includes(filtro)) {
                     row.style.display = "flex";
-                    // Mostrar también el grupo contenedor principal si coincide algún hijo
                     const grupoPadre = row.closest("div[style*='margin-bottom']");
                     if (grupoPadre) grupoPadre.style.display = "block";
                 } else {
@@ -270,7 +270,6 @@ async function abrirModalSelectorMaestro() {
                 }
             });
 
-            // Ocultar grupos que se queden sin elementos visibles al filtrar
             modal.querySelectorAll("#master-modal-content > div").forEach(grupo => {
                 const visibles = grupo.querySelectorAll(".master-item-row[style*='flex']");
                 if (filtro === "") {
@@ -280,8 +279,6 @@ async function abrirModalSelectorMaestro() {
                 }
             });
         });
-
-        
 
         modal.querySelector("#btn-save-master-selection").addEventListener("click", () => {
             procesarSeleccionMaestro(modal);
@@ -367,7 +364,6 @@ function procesarSeleccionMaestro(modal) {
 
 // --- FILTRADO EN VIVO DEL ÁRBOL DE CATEGORÍAS PRINCIPAL ---
 document.addEventListener("DOMContentLoaded", () => {
-    // Esperar a que el DOM pinte el buscador principal
     setTimeout(() => {
         const treeSearchInput = document.getElementById("tree-search-filter");
         if (treeSearchInput) {
@@ -390,11 +386,10 @@ document.addEventListener("DOMContentLoaded", () => {
                         }
                     });
 
-                    // Mostrar el nodo principal si coincide el título o alguna de sus hojas
                     if (textoNodo.includes(filtro) || coincideHoja || filtro === "") {
                         node.style.display = "block";
                         if (filtro !== "") {
-                            node.classList.add("active"); // Expandir automáticamente si hay coincidencia
+                            node.classList.add("active");
                         } else {
                             node.classList.remove("active");
                         }

@@ -61,7 +61,7 @@ function initOverpassModule() {
     }
 }
 
-// --- FUNCIÓN OVERPASS ADAPTADA ---
+// --- FUNCIÓN OVERPASS ---
 async function ejecutarConsultaOverpass(lat, lon) {
     showToast("Consultando Overpass API...");
 
@@ -77,22 +77,27 @@ async function ejecutarConsultaOverpass(lat, lon) {
         return;
     }
 
-    let unionParts = [];
+    // Agrupamos los valores por su clave principal de OSM (ej: amenity: ["cafe", "pub", "fuel"])
+    const tagGroups = {};
     checkboxes.forEach(chk => {
         const key = chk.getAttribute("data-key");
         const value = chk.getAttribute("data-value");
         
         if (key && value) {
-            const fullRaw = `${key}=${value}`;
-            const subTags = fullRaw.split("/").map(s => s.trim());
-            
-            subTags.forEach(rawTag => {
-                if (rawTag.includes("=")) {
-                    const [k, v] = rawTag.split("=");
-                    unionParts.push(`node(around:${radiusMeters}, ${lat}, ${lon})["${k}"="${v}"];`);
-                }
-            });
+            if (!tagGroups[key]) tagGroups[key] = [];
+            // Evitamos duplicados si se marca varias veces
+            if (!tagGroups[key].includes(value)) {
+                tagGroups[key].push(value);
+            }
         }
+    });
+
+    let unionParts = [];
+    Object.keys(tagGroups).forEach(key => {
+        const valuesString = tagGroups[key].join("|");
+        // Usamos operadores de expresión regular de Overpass (~), reduciendo las líneas de la consulta a 1 por cada clave principal
+        unionParts.push(`node(around:${radiusMeters}, ${lat}, ${lon})["${key}"~"${valuesString}"];`);
+        unionParts.push(`way(around:${radiusMeters}, ${lat}, ${lon})["${key}"~"${valuesString}"];`);
     });
 
     if (unionParts.length === 0) {
@@ -101,12 +106,13 @@ async function ejecutarConsultaOverpass(lat, lon) {
         return;
     }
 
+    // Ampliamos el timeout a 30s y añadimos directiva de maxsize para prevenir cortes de memoria
     const overpassQuery = `
-        [out:json][timeout:25];
+        [out:json][timeout:30][maxsize:1073741824];
         (
             ${unionParts.join("\n")}
         );
-        out body;
+        out body center;
     `;
 
     try {
@@ -116,6 +122,7 @@ async function ejecutarConsultaOverpass(lat, lon) {
         });
 
         if (!res.ok) {
+            // Si Overpass devuelve un 429 o 504, capturamos el error de forma limpia
             throw new Error(`Error HTTP: ${res.status}`);
         }
 
@@ -127,10 +134,18 @@ async function ejecutarConsultaOverpass(lat, lon) {
             return;
         }
 
-        currentOverpassElements = data.elements.filter(el => el.type === "node" && el.lat && el.lon);
+        currentOverpassElements = data.elements.filter(el => 
+            (el.type === "node" && el.lat && el.lon) || 
+            (el.type === "way" && el.center && el.center.lat && el.center.lon)
+        ).map(el => {
+            if (el.type === "way" && el.center) {
+                return { ...el, lat: el.center.lat, lon: el.center.lon };
+            }
+            return el;
+        });
         
         selectedNodesMap.clear();
-        currentOverpassElements.forEach(el => selectedNodesMap.set(el.id, true));
+        currentOverpassElements.events?.clear ? selectedNodesMap.clear() : currentOverpassElements.forEach(el => selectedNodesMap.set(el.id, true));
 
         showToast(`¡Éxito! ${currentOverpassElements.length} PDI encontrados`);
         mostrarPanelResultados();
@@ -138,18 +153,18 @@ async function ejecutarConsultaOverpass(lat, lon) {
     } catch (e) {
         console.error("Error en Overpass API:", e);
         showToast("❌ Error de conexión con Overpass");
-        alert("Ocurrió un error al conectar con la API de Overpass. Prueba a reducir el radio o desmarcar algunas categorías.");
+        alert("Ocurrió un error al conectar con la API de Overpass (posible saturación temporal). Prueba a reducir el radio o desmarcar algunas categorías.");
     }
 }
 
-// --- GESTIÓN DE VISTAS Y PANELES (Compatible con tu index actual) ---
+
+// --- GESTIÓN DE VISTAS Y PANELES ---
 function mostrarPanelResultados() {
     const resultsPanel = document.getElementById("results-panel");
     if (resultsPanel) {
         resultsPanel.style.display = "flex";
     }
 
-    // Ocultar los elementos de búsqueda dentro del panel de POIs pero manteniendo el panel general abierto
     const poiPanel = document.getElementById("poi-fullscreen-panel");
     if (poiPanel) {
         Array.from(poiPanel.children).forEach(child => {
@@ -193,21 +208,73 @@ function calcularDistanciaKm(lat1, lon1, lat2, lon2) {
     return R * c;
 }
 
+// --- ASIGNACIÓN DE COLORES SEGÚN PALETA ORIGINAL DE OSM ---
 function obtenerColorPorTag(tags) {
     if (!tags) return "#666666";
-    
-    if (tags.amenity === "restaurant" || tags.amenity === "cafe" || tags.amenity === "bar" || tags.amenity === "pub" || tags.amenity === "fast_food" || tags.shop === "bakery") return "#C77400";
-    if (tags.shop) return "#ac39ac";
-    if (tags.tourism === "alpine_hut" || tags.tourism === "hotel" || tags.tourism === "guest_house" || tags.amenity === "ferry_terminal") return "#0092da";
-    if (tags.amenity === "hospital" || tags.amenity === "pharmacy" || tags.amenity === "clinic") return "#BF0000";
-    if (tags.amenity === "bus_station" || tags.public_transport) return "#7981b0";
-    if (tags.natural === "water" || tags.amenity === "drinking_water" || tags.natural === "spring" || tags.waterway) return "#4d80b3";
-    if (tags.natural === "peak" || tags.mountain_pass) return "#d08f55";
-    if (tags.man_made) return "#666666";
-    
+
+    if (tags.amenity === "hospital" || tags.amenity === "pharmacy" || tags.amenity === "clinic" || tags.amenity === "doctors" || tags.healthcare) {
+        return "#BF0000";
+    }
+    if (tags.shop) {
+        return "#ac39ac";
+    }
+    if (tags.aeroway || tags.aerodrome) {
+        return "#8461C4";
+    }
+    if (tags.amenity === "bus_station" || tags.public_transport || tags.railway || tags.highway === "bus_stop") {
+        return "#7981b0";
+    }
+    if (tags.harbour || tags.waterway === "dock" || tags.amenity === "ferry_terminal") {
+        return "#576ddf";
+    }
+    if (tags.office) {
+        return "#4863A0";
+    }
+    if (tags.natural === "water" || tags.amenity === "drinking_water" || tags.natural === "spring" || tags.waterway) {
+        return "#4d80b3";
+    }
+    if (tags.tourism === "hotel" || tags.tourism === "guest_house" || tags.tourism === "hostel" || tags.tourism === "motel" || tags.amenity === "parking" || tags.highway === "services") {
+        return "#0092da";
+    }
+    if (tags.leisure || tags.amenity === "park" || tags.landuse === "grass") {
+        return "#0c8316";
+    }
+    if (tags.natural === "peak" || tags.mountain_pass || tags.geological) {
+        return "#d08f55";
+    }
+    if (tags.amenity === "restaurant" || tags.amenity === "cafe" || tags.amenity === "bar" || tags.amenity === "pub" || tags.amenity === "fast_food" || tags.shop === "bakery" || tags.amenity === "fuel") {
+        return "#C77400";
+    }
+    if (tags.amenity || tags.historic || tags.amenity === "place_of_worship") {
+        return "#734a08";
+    }
+    if (tags.natural === "volcano") {
+        return "#d40000";
+    }
+    if (tags.highway === "traffic_signals") {
+        return "#545454";
+    }
+    if (tags.man_made || tags.advertising) {
+        return "#666666";
+    }
+
     return "#734a08";
 }
 
+// Diccionario de traducción para las "Keys" madre principales de OSM
+const familiaTagsMap = {
+    "amenity": { nombre: "Servicios y Equipamientos", color: "#734a08" },
+    "tourism": { nombre: "Turismo y Alojamiento", color: "#0092da" },
+    "shop": { nombre: "Comercios", color: "#ac39ac" },
+    "natural": { nombre: "Naturaleza y Relieve", color: "#4d80b3" },
+    "historic": { nombre: "Lugares Históricos", color: "#734a08" },
+    "man_made": { nombre: "Estructuras Artificiales", color: "#666666" },
+    "leisure": { nombre: "Ocio y Parques", color: "#0c8316" },
+    "emergency": { nombre: "Emergencias", color: "#BF0000" },
+    "highway": { nombre: "Vías y Tránsito", color: "#545454" }
+};
+
+// --- RENDERIZADO DE CHIPS AGRUPADOS POR FAMILIA MADRE (KEY) ---
 function poblarPanelResultados() {
     const chipsContainer = document.getElementById("categories-chips-container");
     const nodesContainer = document.getElementById("nodes-container");
@@ -217,51 +284,94 @@ function poblarPanelResultados() {
     nodesContainer.innerHTML = "";
 
     const agrupacion = {};
+    
     currentOverpassElements.forEach(el => {
         if (!el.tags) return;
-        let catKey = "General";
-        if (el.tags.amenity) catKey = `Amenity: ${el.tags.amenity}`;
-        else if (el.tags.tourism) catKey = `Tourism: ${el.tags.tourism}`;
-        else if (el.tags.shop) catKey = `Shop: ${el.tags.shop}`;
-        else if (el.tags.natural) catKey = `Natural: ${el.tags.natural}`;
-        else if (el.tags.man_made) catKey = `Man Made: ${el.tags.man_made}`;
 
-        if (!agrupacion[catKey]) agrupacion[catKey] = [];
-        agrupacion[catKey].push(el);
+        let keyMadre = "general";
+        const keysPrioritarias = ["amenity", "tourism", "shop", "natural", "historic", "man_made", "leisure", "emergency", "highway"];
+        
+        for (const k of keysPrioritarias) {
+            if (el.tags[k]) {
+                keyMadre = k;
+                break;
+            }
+        }
+
+        const infoFamilia = familiaTagsMap[keyMadre] || { nombre: keyMadre.charAt(0).toUpperCase() + keyMadre.slice(1), color: "#666666" };
+        
+        if (!agrupacion[keyMadre]) {
+            agrupacion[keyMadre] = {
+                label: infoFamilia.nombre,
+                color: infoFamilia.color,
+                elementos: []
+            };
+        }
+        agrupacion[keyMadre].elementos.push(el);
     });
 
-    const categoriasDisponibles = Object.keys(agrupacion);
-    if (categoriasDisponibles.length === 0) {
-        nodesContainer.innerHTML = "<p style='padding: 15px; color: #999;'>No se pudieron clasificar los nodos.</p>";
+    const familiasDisponibles = Object.keys(agrupacion);
+    if (familiasDisponibles.length === 0) {
+        nodesContainer.innerHTML = "<p style='padding: 15px; color: #999;'>No se pudieron clasificar los elementos.</p>";
         return;
     }
 
-    activeCategoryName = categoriasDisponibles[0];
+    activeCategoryName = familiasDisponibles[0];
 
-    categoriasDisponibles.forEach(catName => {
-        const nodosList = agrupacion[catName];
+    familiasDisponibles.forEach(keyMadre => {
+        const datosFamilia = agrupacion[keyMadre];
+        const nodosList = datosFamilia.elementos;
+        const isActive = (keyMadre === activeCategoryName);
+
         const chip = document.createElement("div");
-        chip.className = `category-chip ${catName === activeCategoryName ? 'active' : ''}`;
+        chip.className = `category-chip ${isActive ? 'active' : ''}`;
+        
+        // Convertimos el color HEX de la familia a RGBA para darle la transparencia
+        const hex = datosFamilia.color.replace('#', '');
+        const r = parseInt(hex.substring(0, 2), 16);
+        const g = parseInt(hex.substring(2, 4), 16);
+        const b = parseInt(hex.substring(4, 6), 16);
+
+        // Borde completo con el color de la familia
+        chip.style.border = `2px solid ${datosFamilia.color}`;
+        
+        // Fondo translúcido dinámico según si está activo o no
+        const alphaFondo = isActive ? '0.35' : '0.12';
+        chip.style.backgroundColor = `rgba(${r}, ${g}, ${b}, ${alphaFondo})`;
 
         const labelSpan = document.createElement("span");
-        labelSpan.textContent = `${catName} (${nodosList.length})`;
+        labelSpan.textContent = `${datosFamilia.label} (${nodosList.length})`;
         labelSpan.addEventListener("click", () => {
-            document.querySelectorAll(".category-chip").forEach(c => c.classList.remove("active"));
+            document.querySelectorAll(".category-chip").forEach(c => {
+                c.classList.remove("active");
+            });
             chip.classList.add("active");
-            activeCategoryName = catName;
-            renderizarNodosCategoria(agrupacion[activeCategoryName]);
+            activeCategoryName = keyMadre;
+            
+            // Actualizamos los fondos de todos los chips al hacer clic
+            document.querySelectorAll(".category-chip").forEach(el => {
+                // Buscamos su color original o aplicamos fondo base
+                el.style.backgroundColor = `rgba(${r}, ${g}, ${b}, 0.12)`;
+            });
+            chip.style.backgroundColor = `rgba(${r}, ${g}, ${b}, 0.35)`;
+
+            renderizarNodosCategoria(agrupacion[activeCategoryName].elementos);
         });
 
         chip.appendChild(labelSpan);
         chipsContainer.appendChild(chip);
     });
 
-    renderizarNodosCategoria(agrupacion[activeCategoryName]);
+    renderizarNodosCategoria(agrupacion[activeCategoryName].elementos);
 
-    const btnBack = document.getElementById("btn-back");
-    if (btnBack) btnBack.onclick = () => volverAPanelBusqueda();
+    const btnBackResults = document.getElementById("btn-back-results");
+    if (btnBackResults) {
+        btnBackResults.onclick = () => volverAPanelBusqueda();
+    }
 }
 
+
+// --- RENDERIZADO CON SUB-BLOQUES / ENCABEZADOS POR VALOR (Nombre original restaurado) ---
 function renderizarNodosCategoria(nodosList) {
     const nodesContainer = document.getElementById("nodes-container");
     if (!nodesContainer) return;
@@ -272,21 +382,47 @@ function renderizarNodosCategoria(nodosList) {
         return;
     }
 
+    const subAgrupacion = {};
     nodosList.forEach(node => {
-        const name = node.tags && node.tags.name ? node.tags.name : "Punto sin nombre";
-        const ele = node.tags && node.tags.ele ? ` | Ele: ${node.tags.ele}m` : "";
-        const distancia = calcularDistanciaKm(currentLat, currentLon, node.lat, node.lon).toFixed(1);
-        const colorTag = obtenerColorPorTag(node.tags);
+        let subValor = "otros";
+        const keysPrioritarias = ["amenity", "tourism", "shop", "natural", "historic", "man_made", "leisure", "emergency", "highway"];
+        
+        for (const k of keysPrioritarias) {
+            if (node.tags && node.tags[k]) {
+                subValor = node.tags[k];
+                break;
+            }
+        }
 
-        const card = document.createElement("div");
-        card.className = "node-card";
-        card.style.borderLeft = `4px solid ${colorTag}`;
-        card.innerHTML = `
-            <div class="node-info">
-                <div class="node-name" style="color: ${colorTag};">${name}</div>
-                <div class="node-meta">Dist: ${distancia} km${ele} | Lat/Lon: ${node.lat.toFixed(4)}, ${node.lon.toFixed(4)}</div>
-            </div>
-        `;
-        nodesContainer.appendChild(card);
+        if (!subAgrupacion[subValor]) subAgrupacion[subValor] = [];
+        subAgrupacion[subValor].push(node);
+    });
+
+    Object.keys(subAgrupacion).forEach(subValor => {
+        const listaSub = subAgrupacion[subValor];
+        
+        const headerSub = document.createElement("div");
+        headerSub.className = "nodes-subgroup-header";
+        headerSub.style.cssText = "padding: 8px 12px; font-size: 0.85rem; font-weight: bold; color: var(--primary-cyan); text-transform: uppercase; background: rgba(0,229,255,0.05); border-bottom: 1px solid var(--border-color); margin-top: 8px;";
+        headerSub.textContent = `${subValor.replace(/_/g, ' ')} (${listaSub.length})`;
+        nodesContainer.appendChild(headerSub);
+
+        listaSub.forEach(node => {
+            const name = node.tags && node.tags.name ? node.tags.name : "Punto sin nombre";
+            const ele = node.tags && node.tags.ele ? ` | Ele: ${node.tags.ele}m` : "";
+            const distancia = calcularDistanciaKm(currentLat, currentLon, node.lat, node.lon).toFixed(1);
+            const colorTag = obtenerColorPorTag(node.tags);
+
+            const card = document.createElement("div");
+            card.className = "node-card";
+            card.style.borderLeft = `4px solid ${colorTag}`;
+            card.innerHTML = `
+                <div class="node-info">
+                    <div class="node-name" style="color: ${colorTag};">${name}</div>
+                    <div class="node-meta">Dist: ${distancia} km${ele} | Lat/Lon: ${node.lat.toFixed(4)}, ${node.lon.toFixed(4)}</div>
+                </div>
+            `;
+            nodesContainer.appendChild(card);
+        });
     });
 }
