@@ -451,7 +451,7 @@ async function ejecutarConsultaNominatim(lat, lon) {
     }
 }
 
-// --- NUEVA FUNCIÓN DE ENRIQUECIMIENTO DIRECTO DESDE LA API OFICIAL DE OSM ---
+// --- FUNCIÓN DE ENRIQUECIMIENTO DIRECTO DESDE LA API OFICIAL DE OSM ---
 async function enriquecerPoiDesdeOSM(poi) {
     const osmType = poi.osm_type || poi.type || 'node';
     const osmId = poi.id;
@@ -720,7 +720,7 @@ function poblarPanelResultados() {
     }
 }
 
-// --- RENDERIZADO DE TARJETAS CON CHECKBOX, ACORDEÓN DINÁMICO Y BOTONES DE ACCIÓN ---
+// --- RENDERIZADO DE TARJETAS CON CHECKBOX, ACORDEÓN DINÁMICO OCULTO Y BOTONES DE ACCIÓN ---
 function renderizarNodosCategoria(nodosList) {
     const nodesContainer = document.getElementById("nodes-container");
     if (!nodesContainer) return;
@@ -770,7 +770,7 @@ function renderizarNodosCategoria(nodosList) {
                 let details = [];
                 const keysIgnorar = ["display_full", "normalized_name"];
 
-                // Recorrido dinámico y universal de TODAS las etiquetas disponibles en OSM
+                // Recorrido dinámico de TODAS las etiquetas OSM
                 Object.keys(tags).forEach(key => {
                     if (keysIgnorar.includes(key)) return;
                     const val = tags[key];
@@ -795,8 +795,9 @@ function renderizarNodosCategoria(nodosList) {
                     </button>
                 `;
 
+                // NOTA IMPORTANTE: Se añade style="display: none;" por defecto además de la clase hidden para garantizar que permanezca oculto tras enriquecer
                 accordionHtml = `
-                    <div id="info-accordion-${node.id}" class="poi-accordion hidden" style="background: rgba(0,0,0,0.6); border: 1px solid rgba(0,229,255,0.3); border-radius: 8px; padding: 10px; margin-top: 6px; font-size: 0.8rem; display: flex; flex-direction: column; gap: 4px; font-family: monospace;">
+                    <div id="info-accordion-${node.id}" class="poi-accordion hidden" style="display: none; background: rgba(0,0,0,0.6); border: 1px solid rgba(0,229,255,0.3); border-radius: 8px; padding: 10px; margin-top: 6px; font-size: 0.8rem; flex-direction: column; gap: 4px; font-family: monospace;">
                         ${details.map(d => `<div style="word-break: break-all;">${d}</div>`).join('')}
                     </div>
                 `;
@@ -860,14 +861,21 @@ function renderizarNodosCategoria(nodosList) {
         });
     });
 
-    // Vincular evento para desplegar u ocultar el acordeón dinámico al pulsar el botón de información
+    // Vincular evento para alternar entre mostrar u ocultar el acordeón con el botón (i)
     nodesContainer.querySelectorAll('.btn-toggle-info').forEach(btn => {
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
             const id = parseInt(btn.getAttribute('data-id'));
             const accordion = document.getElementById(`info-accordion-${id}`);
             if (accordion) {
-                accordion.classList.toggle("hidden");
+                const estaOculto = accordion.style.display === "none" || accordion.classList.contains("hidden");
+                if (estaOculto) {
+                    accordion.style.display = "flex";
+                    accordion.classList.remove("hidden");
+                } else {
+                    accordion.style.display = "none";
+                    accordion.classList.add("hidden");
+                }
             }
         });
     });
@@ -1241,7 +1249,6 @@ function mostrarOpcionesAvanzadas(id) {
     }
 
     const panel = document.getElementById("advanced-options-panel");
-    if (panel) panel.classList.add("hidden"); // Se mantiene abierto o cerrado según tu lógica de panel avanzado
     if (panel) panel.classList.remove("hidden");
 }
 
