@@ -770,7 +770,6 @@ function renderizarNodosCategoria(nodosList) {
                 let details = [];
                 const keysIgnorar = ["display_full", "normalized_name"];
 
-                // Recorrido dinámico de TODAS las etiquetas OSM
                 Object.keys(tags).forEach(key => {
                     if (keysIgnorar.includes(key)) return;
                     const val = tags[key];
@@ -795,7 +794,6 @@ function renderizarNodosCategoria(nodosList) {
                     </button>
                 `;
 
-                // NOTA IMPORTANTE: Se añade style="display: none;" por defecto además de la clase hidden para garantizar que permanezca oculto tras enriquecer
                 accordionHtml = `
                     <div id="info-accordion-${node.id}" class="poi-accordion hidden" style="display: none; background: rgba(0,0,0,0.6); border: 1px solid rgba(0,229,255,0.3); border-radius: 8px; padding: 10px; margin-top: 6px; font-size: 0.8rem; flex-direction: column; gap: 4px; font-family: monospace;">
                         ${details.map(d => `<div style="word-break: break-all;">${d}</div>`).join('')}
@@ -851,7 +849,6 @@ function renderizarNodosCategoria(nodosList) {
         });
     });
 
-    // Vincular eventos de los checkboxes individuales actualizando el historial
     nodesContainer.querySelectorAll('.poi-select-checkbox').forEach(chk => {
         chk.addEventListener('change', () => {
             const id = parseInt(chk.getAttribute("data-id"));
@@ -861,7 +858,6 @@ function renderizarNodosCategoria(nodosList) {
         });
     });
 
-    // Vincular evento para alternar entre mostrar u ocultar el acordeón con el botón (i)
     nodesContainer.querySelectorAll('.btn-toggle-info').forEach(btn => {
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -880,7 +876,6 @@ function renderizarNodosCategoria(nodosList) {
         });
     });
 
-    // Vincular eventos de los botones de cada tarjeta
     nodesContainer.querySelectorAll('.btn-go-map').forEach(btn => {
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -1051,6 +1046,80 @@ function seleccionarPoiEnMapa(poi) {
     document.getElementById("detail-poi-category").textContent = infoFamilia.nombre;
     document.getElementById("detail-poi-title").textContent = name;
     document.getElementById("detail-poi-meta").textContent = `Distancia: ${distancia} km | Coordenadas: ${poi.lat.toFixed(4)}, ${poi.lon.toFixed(4)}`;
+
+    // --- INTEGRACIÓN DE BOTÓN INFO Y ACORDEÓN EN EL PANEL DEL MAPA ---
+    let mapAccordionContainer = document.getElementById("map-poi-accordion-container");
+    
+    if (!mapAccordionContainer) {
+        mapAccordionContainer = document.createElement("div");
+        mapAccordionContainer.id = "map-poi-accordion-container";
+        mapAccordionContainer.style.cssText = "width: 100%; margin-top: 6px;";
+        
+        const metaEl = document.getElementById("detail-poi-meta");
+        if (metaEl && metaEl.parentNode) {
+            metaEl.parentNode.insertBefore(mapAccordionContainer, metaEl.nextSibling);
+        }
+    }
+
+    let accordionHtml = "";
+    let infoBtnHtml = "";
+
+    if (poi.enriquecido && poi.tagsEnriquecidas) {
+        const tags = poi.tagsEnriquecidas;
+        let details = [];
+        const keysIgnorar = ["display_full", "normalized_name"];
+
+        Object.keys(tags).forEach(key => {
+            if (keysIgnorar.includes(key)) return;
+            const val = tags[key];
+            if (!val) return;
+
+            if (key === "phone" || key.includes("contact:phone")) {
+                details.push(`📞 <b>${key}:</b> <a href="tel:${val}" style="color:var(--primary-cyan);">${val}</a>`);
+            } else if (key === "website" || val.toString().startsWith("http")) {
+                details.push(`🌐 <b>${key}:</b> <a href="${val}" target="_blank" style="color:var(--primary-cyan);">${val}</a>`);
+            } else {
+                details.push(`<code>${key}</code>: <b>${val}</b>`);
+            }
+        });
+
+        if (details.length === 0) {
+            details.push("ℹ️ Sin etiquetas adicionales en OSM.");
+        }
+
+        infoBtnHtml = `
+            <button id="map-btn-toggle-info" title="Ver etiquetas OSM" style="background: rgba(0,229,255,0.1); border: 1px solid var(--primary-cyan); padding: 6px 10px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 4px; color: var(--primary-cyan); font-size: 0.8rem;">
+                <img src="./ui-icons/fi-rr-info.svg" width="14" height="14" style="filter: brightness(0) saturate(100%) invert(77%) sepia(87%) saturate(1637%) hue-rotate(155deg) brightness(103%) contrast(101%);" alt="Info">
+            </button>
+        `;
+
+        accordionHtml = `
+            <div id="map-info-accordion" class="poi-accordion hidden" style="display: none; background: rgba(0,0,0,0.6); border: 1px solid rgba(0,229,255,0.3); border-radius: 8px; padding: 10px; max-height: 150px; overflow-y: auto; font-size: 0.8rem; flex-direction: column; gap: 4px; font-family: monospace; margin-top: 6px;">
+                ${details.map(d => `<div style="word-break: break-all;">${d}</div>`).join('')}
+            </div>
+        `;
+    }
+
+    mapAccordionContainer.innerHTML = `${infoBtnHtml}${accordionHtml}`;
+
+    const mapToggleBtn = document.getElementById("map-btn-toggle-info");
+    if (mapToggleBtn) {
+        mapToggleBtn.onclick = (e) => {
+            e.stopPropagation();
+            const accordion = document.getElementById("map-info-accordion");
+            if (accordion) {
+                const estaOculto = accordion.style.display === "none" || accordion.classList.contains("hidden");
+                if (estaOculto) {
+                    accordion.style.display = "flex";
+                    accordion.classList.remove("hidden");
+                } else {
+                    accordion.style.display = "none";
+                    accordion.classList.add("hidden");
+                }
+            }
+        };
+    }
+    // -------------------------------------------------------------
 
     panel.style.display = "flex";
 
@@ -1300,7 +1369,6 @@ function initAdvancedOptionsEvents() {
         });
     }
 
-    // Botón de Enriquecer actualizado para llamar directamente a la API oficial de OSM
     const btnEnrich = document.getElementById("adv-btn-enrich");
     if (btnEnrich) {
         btnEnrich.addEventListener("click", async () => {
