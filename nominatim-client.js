@@ -415,7 +415,7 @@ async function ejecutarConsultaNominatim(lat, lon) {
 
                     uniqueElementsMap.set(item.place_id, {
                         id: item.osm_id || item.place_id, // ID real de OpenStreetMap
-                        osm_type: osmType,                // Tipo exacto para Overpass
+                        osm_type: osmType,                // Tipo exacto para consultas en API OSM
                         type: osmType,
                         lat: parseFloat(item.lat),
                         lon: parseFloat(item.lon),
@@ -449,6 +449,57 @@ async function ejecutarConsultaNominatim(lat, lon) {
         console.error("Error Nominatim API:", e);
         showToast("❌ Error de conexión con Nominatim");
         alert("Ocurrió un error al conectar con la API de Nominatim.");
+    }
+}
+
+// --- NUEVA FUNCIÓN DE ENRIQUECIMIENTO DIRECTO DESDE LA API DE OSM ---
+async function enriquecerPoiDesdeOSM(poi) {
+    const osmType = poi.osm_type || poi.type || 'node';
+    const osmId = poi.id;
+
+    if (!osmId) {
+        showToast("⚠️ El PDI no tiene un ID de OSM válido");
+        return null;
+    }
+
+    showToast(`Consultando API oficial de OSM (${osmType}/${osmId})...`);
+
+    const url = `https://api.openstreetmap.org/api/0.6/${osmType}/${osmId}.json`;
+
+    try {
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`Error HTTP: ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (!data.elements || data.elements.length === 0) {
+            showToast("⚠️ No se encontraron datos en la API de OSM");
+            return null;
+        }
+
+        const elementoOsm = data.elements[0];
+
+        // Remplazamos/actualizamos las etiquetas enriquecidas con la respuesta de OSM
+        poi.tagsEnriquecidas = elementoOsm.tags || {};
+        poi.enriquecido = true;
+
+        if (elementoOsm.tags && elementoOsm.tags.name) {
+            poi.tags.name = elementoOsm.tags.name;
+        }
+
+        if (elementoOsm.lat && elementoOsm.lon) {
+            poi.lat = parseFloat(elementoOsm.lat);
+            poi.lon = parseFloat(elementoOsm.lon);
+        }
+
+        showToast("✅ Datos obtenidos directamente de OSM");
+        return poi.tagsEnriquecidas;
+
+    } catch (error) {
+        console.error("Error al consultar la API de OSM:", error);
+        showToast("❌ Error al conectar con la API de OSM");
+        return null;
     }
 }
 
@@ -1232,13 +1283,14 @@ function initAdvancedOptionsEvents() {
         });
     }
 
+    // Botón de Enriquecer actualizado para llamar directamente a la API de OSM
     const btnEnrich = document.getElementById("adv-btn-enrich");
     if (btnEnrich) {
         btnEnrich.addEventListener("click", async () => {
             const poi = currentNominatimElements.find(el => el.id === currentAdvancedPoiId);
             if (!poi) return;
             
-            const tagsEnriquecidas = await enriquecerPoiConOverpass(poi);
+            const tagsEnriquecidas = await enriquecerPoiDesdeOSM(poi);
             if (tagsEnriquecidas) {
                 const panel = document.getElementById("advanced-options-panel");
                 if (panel) panel.classList.add("hidden");
@@ -1257,12 +1309,22 @@ function initAdvancedOptionsEvents() {
         });
     }
 
+    const btnViewOsm = document.getElementById("adv-btn-view-osm");
+    if (btnViewOsm) {
+        btnViewOsm.addEventListener("click", () => {
+            const poi = currentNominatimElements.find(el => el.id === currentAdvancedPoiId);
+            if (!poi) return;
+            const elementType = poi.osm_type || poi.type || "node";
+            const url = `https://www.openstreetmap.org/${elementType}/${poi.id}`;
+            window.open(url, '_blank');
+        });
+    }
+
     const btnEdit = document.getElementById("adv-btn-edit");
     if (btnEdit) {
         btnEdit.addEventListener("click", () => {
             const poi = currentNominatimElements.find(el => el.id === currentAdvancedPoiId);
             if (!poi) return;
-            // Usamos osm_type para garantizar que abra correctamente el editor de OSM con el tipo y ID reales
             const elementType = poi.osm_type || poi.type || "node";
             const url = `https://www.openstreetmap.org/edit?${elementType}=${poi.id}`;
             window.open(url, '_blank');
