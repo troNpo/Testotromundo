@@ -408,14 +408,13 @@ async function ejecutarConsultaNominatim(lat, lon) {
         resultsArrays.forEach(arr => {
             arr.forEach(item => {
                 if (!uniqueElementsMap.has(item.place_id)) {
-                    // Mapeamos el tipo de elemento de OSM de forma robusta
                     let osmType = "node";
                     if (item.osm_type === "way") osmType = "way";
                     else if (item.osm_type === "relation") osmType = "relation";
 
                     uniqueElementsMap.set(item.place_id, {
-                        id: item.osm_id || item.place_id, // ID real de OpenStreetMap
-                        osm_type: osmType,                // Tipo exacto para consultas en API OSM
+                        id: item.osm_id || item.place_id,
+                        osm_type: osmType,
                         type: osmType,
                         lat: parseFloat(item.lat),
                         lon: parseFloat(item.lon),
@@ -452,7 +451,7 @@ async function ejecutarConsultaNominatim(lat, lon) {
     }
 }
 
-// --- NUEVA FUNCIÓN DE ENRIQUECIMIENTO DIRECTO DESDE LA API DE OSM ---
+// --- NUEVA FUNCIÓN DE ENRIQUECIMIENTO DIRECTO DESDE LA API OFICIAL DE OSM ---
 async function enriquecerPoiDesdeOSM(poi) {
     const osmType = poi.osm_type || poi.type || 'node';
     const osmId = poi.id;
@@ -480,7 +479,7 @@ async function enriquecerPoiDesdeOSM(poi) {
 
         const elementoOsm = data.elements[0];
 
-        // Remplazamos/actualizamos las etiquetas enriquecidas con la respuesta de OSM
+        // Guardamos todas las etiquetas devueltas por OSM
         poi.tagsEnriquecidas = elementoOsm.tags || {};
         poi.enriquecido = true;
 
@@ -721,7 +720,7 @@ function poblarPanelResultados() {
     }
 }
 
-// --- RENDERIZADO DE TARJETAS CON CHECKBOX, ACORDEÓN Y BOTONES DE ACCIÓN ---
+// --- RENDERIZADO DE TARJETAS CON CHECKBOX, ACORDEÓN DINÁMICO Y BOTONES DE ACCIÓN ---
 function renderizarNodosCategoria(nodosList) {
     const nodesContainer = document.getElementById("nodes-container");
     if (!nodesContainer) return;
@@ -769,26 +768,36 @@ function renderizarNodosCategoria(nodosList) {
             if (node.enriquecido && node.tagsEnriquecidas) {
                 const tags = node.tagsEnriquecidas;
                 let details = [];
+                const keysIgnorar = ["display_full", "normalized_name"];
 
-                if (tags.phone) details.push(`📞 <b>Tel:</b> <a href="tel:${tags.phone}" style="color:var(--primary-cyan);">${tags.phone}</a>`);
-                if (tags.website) details.push(`🌐 <b>Web:</b> <a href="${tags.website}" target="_blank" style="color:var(--primary-cyan);">${tags.website}</a>`);
-                if (tags.opening_hours) details.push(`⏰ <b>Horario:</b> ${tags.opening_hours}`);
-                if (tags.wheelchair) details.push(`♿ <b>Accesible:</b> ${tags.wheelchair}`);
-                if (tags.operator) details.push(`🏢 <b>Operador:</b> ${tags.operator}`);
+                // Recorrido dinámico y universal de TODAS las etiquetas disponibles en OSM
+                Object.keys(tags).forEach(key => {
+                    if (keysIgnorar.includes(key)) return;
+                    const val = tags[key];
+                    if (!val) return;
+
+                    if (key === "phone" || key.includes("contact:phone")) {
+                        details.push(`📞 <b>${key}:</b> <a href="tel:${val}" style="color:var(--primary-cyan);">${val}</a>`);
+                    } else if (key === "website" || val.toString().startsWith("http")) {
+                        details.push(`🌐 <b>${key}:</b> <a href="${val}" target="_blank" style="color:var(--primary-cyan);">${val}</a>`);
+                    } else {
+                        details.push(`<code>${key}</code>: <b>${val}</b>`);
+                    }
+                });
 
                 if (details.length === 0) {
-                    details.push("ℹ️ Sin datos adicionales disponibles.");
+                    details.push("ℹ️ Sin etiquetas adicionales en OSM.");
                 }
 
                 infoBtnHtml = `
-                    <button class="action-btn btn-toggle-info" data-id="${node.id}" title="Ver información enriquecida" style="background: rgba(0,229,255,0.1); border: 1px solid var(--primary-cyan); padding: 6px 10px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 4px; color: var(--primary-cyan); font-size: 0.8rem;">
+                    <button class="action-btn btn-toggle-info" data-id="${node.id}" title="Ver etiquetas OSM" style="background: rgba(0,229,255,0.1); border: 1px solid var(--primary-cyan); padding: 6px 10px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 4px; color: var(--primary-cyan); font-size: 0.8rem;">
                         <img src="./ui-icons/fi-rr-info.svg" width="14" height="14" style="filter: brightness(0) saturate(100%) invert(77%) sepia(87%) saturate(1637%) hue-rotate(155deg) brightness(103%) contrast(101%);" alt="Info">
                     </button>
                 `;
 
                 accordionHtml = `
-                    <div id="info-accordion-${node.id}" class="poi-accordion hidden" style="background: rgba(0,0,0,0.4); border: 1px solid rgba(0,229,255,0.3); border-radius: 8px; padding: 10px; margin-top: 6px; font-size: 0.8rem; display: flex; flex-direction: column; gap: 4px;">
-                        ${details.map(d => `<div>${d}</div>`).join('')}
+                    <div id="info-accordion-${node.id}" class="poi-accordion hidden" style="background: rgba(0,0,0,0.6); border: 1px solid rgba(0,229,255,0.3); border-radius: 8px; padding: 10px; margin-top: 6px; font-size: 0.8rem; display: flex; flex-direction: column; gap: 4px; font-family: monospace;">
+                        ${details.map(d => `<div style="word-break: break-all;">${d}</div>`).join('')}
                     </div>
                 `;
             }
@@ -851,7 +860,7 @@ function renderizarNodosCategoria(nodosList) {
         });
     });
 
-    // Vincular evento para desplegar u ocultar el acordeón de información enriquecida
+    // Vincular evento para desplegar u ocultar el acordeón dinámico al pulsar el botón de información
     nodesContainer.querySelectorAll('.btn-toggle-info').forEach(btn => {
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -1232,6 +1241,7 @@ function mostrarOpcionesAvanzadas(id) {
     }
 
     const panel = document.getElementById("advanced-options-panel");
+    if (panel) panel.classList.add("hidden"); // Se mantiene abierto o cerrado según tu lógica de panel avanzado
     if (panel) panel.classList.remove("hidden");
 }
 
@@ -1283,7 +1293,7 @@ function initAdvancedOptionsEvents() {
         });
     }
 
-    // Botón de Enriquecer actualizado para llamar directamente a la API de OSM
+    // Botón de Enriquecer actualizado para llamar directamente a la API oficial de OSM
     const btnEnrich = document.getElementById("adv-btn-enrich");
     if (btnEnrich) {
         btnEnrich.addEventListener("click", async () => {
