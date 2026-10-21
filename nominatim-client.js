@@ -479,7 +479,6 @@ async function enriquecerPoiDesdeOSM(poi) {
 
         const elementoOsm = data.elements[0];
 
-        // Guardamos todas las etiquetas devueltas por OSM
         poi.tagsEnriquecidas = elementoOsm.tags || {};
         poi.enriquecido = true;
 
@@ -1047,22 +1046,23 @@ function seleccionarPoiEnMapa(poi) {
     document.getElementById("detail-poi-title").textContent = name;
     document.getElementById("detail-poi-meta").textContent = `Distancia: ${distancia} km | Coordenadas: ${poi.lat.toFixed(4)}, ${poi.lon.toFixed(4)}`;
 
-    // --- INTEGRACIÓN DE BOTÓN INFO Y ACORDEÓN EN EL PANEL DEL MAPA ---
-    let mapAccordionContainer = document.getElementById("map-poi-accordion-container");
-    
-    if (!mapAccordionContainer) {
-        mapAccordionContainer = document.createElement("div");
-        mapAccordionContainer.id = "map-poi-accordion-container";
-        mapAccordionContainer.style.cssText = "width: 100%; margin-top: 6px;";
+    // --- GESTIÓN DEL BOTÓN INFO Y ACORDEÓN EN LA BOTONERA DEL PANEL DEL MAPA ---
+    const btnInfoMap = document.getElementById("detail-btn-info");
+    let mapAccordion = document.getElementById("map-info-accordion");
+
+    // Si no existe el acordeón en el panel del mapa todavía, lo creamos dinámicamente
+    if (!mapAccordion) {
+        mapAccordion = document.createElement("div");
+        mapAccordion.id = "map-info-accordion";
+        mapAccordion.className = "poi-accordion hidden";
+        mapAccordion.style.cssText = "display: none; background: rgba(0,0,0,0.6); border: 1px solid rgba(0,229,255,0.3); border-radius: 8px; padding: 10px; max-height: 150px; overflow-y: auto; font-size: 0.8rem; flex-direction: column; gap: 4px; font-family: monospace; margin-top: 10px; width: 100%;";
         
+        // Lo insertamos justo encima de la botonera del panel
         const metaEl = document.getElementById("detail-poi-meta");
         if (metaEl && metaEl.parentNode) {
-            metaEl.parentNode.insertBefore(mapAccordionContainer, metaEl.nextSibling);
+            metaEl.parentNode.insertBefore(mapAccordion, metaEl.nextSibling);
         }
     }
-
-    let accordionHtml = "";
-    let infoBtnHtml = "";
 
     if (poi.enriquecido && poi.tagsEnriquecidas) {
         const tags = poi.tagsEnriquecidas;
@@ -1087,39 +1087,29 @@ function seleccionarPoiEnMapa(poi) {
             details.push("ℹ️ Sin etiquetas adicionales en OSM.");
         }
 
-        infoBtnHtml = `
-            <button id="map-btn-toggle-info" title="Ver etiquetas OSM" style="background: rgba(0,229,255,0.1); border: 1px solid var(--primary-cyan); padding: 6px 10px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 4px; color: var(--primary-cyan); font-size: 0.8rem;">
-                <img src="./ui-icons/fi-rr-info.svg" width="14" height="14" style="filter: brightness(0) saturate(100%) invert(77%) sepia(87%) saturate(1637%) hue-rotate(155deg) brightness(103%) contrast(101%);" alt="Info">
-            </button>
-        `;
-
-        accordionHtml = `
-            <div id="map-info-accordion" class="poi-accordion hidden" style="display: none; background: rgba(0,0,0,0.6); border: 1px solid rgba(0,229,255,0.3); border-radius: 8px; padding: 10px; max-height: 150px; overflow-y: auto; font-size: 0.8rem; flex-direction: column; gap: 4px; font-family: monospace; margin-top: 6px;">
-                ${details.map(d => `<div style="word-break: break-all;">${d}</div>`).join('')}
-            </div>
-        `;
-    }
-
-    mapAccordionContainer.innerHTML = `${infoBtnHtml}${accordionHtml}`;
-
-    const mapToggleBtn = document.getElementById("map-btn-toggle-info");
-    if (mapToggleBtn) {
-        mapToggleBtn.onclick = (e) => {
-            e.stopPropagation();
-            const accordion = document.getElementById("map-info-accordion");
-            if (accordion) {
-                const estaOculto = accordion.style.display === "none" || accordion.classList.contains("hidden");
+        mapAccordion.innerHTML = details.map(d => `<div style="word-break: break-all;">${d}</div>`).join('');
+        
+        if (btnInfoMap) {
+            btnInfoMap.style.display = "flex";
+            btnInfoMap.onclick = (e) => {
+                e.stopPropagation();
+                const estaOculto = mapAccordion.style.display === "none" || mapAccordion.classList.contains("hidden");
                 if (estaOculto) {
-                    accordion.style.display = "flex";
-                    accordion.classList.remove("hidden");
+                    mapAccordion.style.display = "flex";
+                    mapAccordion.classList.remove("hidden");
                 } else {
-                    accordion.style.display = "none";
-                    accordion.classList.add("hidden");
+                    mapAccordion.style.display = "none";
+                    mapAccordion.classList.add("hidden");
                 }
-            }
-        };
+            };
+        }
+    } else {
+        if (btnInfoMap) btnInfoMap.style.display = "none";
+        mapAccordion.style.display = "none";
+        mapAccordion.classList.add("hidden");
+        mapAccordion.innerHTML = "";
     }
-    // -------------------------------------------------------------
+    // --------------------------------------------------------------------------
 
     panel.style.display = "flex";
 
@@ -1137,6 +1127,13 @@ function ocultarPanelDetalleMapa() {
     const panel = document.getElementById("map-poi-detail-panel");
     if (panel) {
         panel.style.display = "none";
+    }
+
+    // Ocultar también el acordeón del mapa al cerrar el panel
+    const mapAccordion = document.getElementById("map-info-accordion");
+    if (mapAccordion) {
+        mapAccordion.style.display = "none";
+        mapAccordion.classList.add("hidden");
     }
 
     const toolbar = document.getElementById("poi-map-toolbar");
