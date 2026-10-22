@@ -1375,7 +1375,7 @@ function initAdvancedOptionsEvents() {
         });
     }
 
-    const btnEnrich = document.getElementById("adv-btn-enrich");
+        const btnEnrich = document.getElementById("adv-btn-enrich");
     if (btnEnrich) {
         btnEnrich.addEventListener("click", async () => {
             const poi = currentNominatimElements.find(el => el.id === currentAdvancedPoiId);
@@ -1388,6 +1388,11 @@ function initAdvancedOptionsEvents() {
                 
                 poblarPanelResultados();
                 
+                // Refrescar el panel inferior del mapa al instante si este PDI está seleccionado
+                if (selectedPoiId === poi.id) {
+                    seleccionarPoiEnMapa(poi);
+                }
+                
                 setTimeout(() => {
                     const card = document.getElementById(`poi-card-${poi.id}`);
                     if (card) {
@@ -1399,6 +1404,7 @@ function initAdvancedOptionsEvents() {
             }
         });
     }
+
 
     const btnViewOsm = document.getElementById("adv-btn-view-osm");
     if (btnViewOsm) {
