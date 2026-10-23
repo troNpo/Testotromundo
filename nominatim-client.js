@@ -130,11 +130,11 @@ function initHeaderActionButtons() {
         };
     }
 
-    const btnDownload = document.getElementById("btn-download-preset");
+       const btnDownload = document.getElementById("btn-download-preset");
     if (btnDownload) {
         btnDownload.onclick = (e) => {
             e.preventDefault();
-            exportarPdiAKml();
+            abrirGestorKmlManager(); // Abre el gestor a pantalla completa con el árbol de carpetas
         };
     }
 }
@@ -496,6 +496,20 @@ async function enriquecerPoiDesdeOSM(poi) {
             } catch (e) {
                 console.error("Error generando Plus Code:", e);
             }
+
+            // --- INYECCIÓN DINÁMICA DE URL DE VISTA (PEAKFINDER O STREET VIEW) ---
+            const usePeakFinder = esPuntoDeMontanaOPanoramico(poi);
+            if (usePeakFinder) {
+                let ele = 0;
+                if (poi.tags && poi.tags.ele) {
+                    ele = parseFloat(poi.tags.ele) || 0;
+                } else if (poi.tagsEnriquecidas && poi.tagsEnriquecidas.ele) {
+                    ele = parseFloat(poi.tagsEnriquecidas.ele) || 0;
+                }
+                poi.tagsEnriquecidas["peakfinder_url"] = `https://www.peakfinder.org/es?lat=${poi.lat}&lng=${poi.lon}&ele=${ele}`;
+            } else {
+                poi.tagsEnriquecidas["street_view_url"] = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${poi.lat},${poi.lon}`;
+            }
         }
 
         showToast("✅ Datos obtenidos directamente de OSM");
@@ -507,6 +521,7 @@ async function enriquecerPoiDesdeOSM(poi) {
         return null;
     }
 }
+
 
 
 
@@ -1312,6 +1327,39 @@ function initMapViewButton() {
 // --- GESTIÓN DEL PANEL DE OPCIONES AVANZADAS Y ACCIONES DIRECTAS ---
 let currentAdvancedPoiId = null;
 
+// --- FUNCIÓN AUXILIAR INTELIGENTE PARA DETECTAR MONTAÑA / PANORÁMICA ---
+function esPuntoDeMontanaOPanoramico(poi) {
+    if (!poi || !poi.tags) return false;
+    
+    // 1. Relieve, picos, volcanes, cuevas, etc. (basado en 'Nature and Orography')
+    const naturalTag = poi.tags.natural;
+    const isNaturalPeakOrRelief = (
+        naturalTag === 'peak' || 
+        naturalTag === 'volcano' || 
+        naturalTag === 'geyser' || 
+        naturalTag === 'cave_entrance' || 
+        naturalTag === 'cliff' ||
+        naturalTag === 'rock' ||
+        naturalTag === 'sinkhole' ||
+        poi.tags.mountain_pass === 'yes' ||
+        poi.tags['mountain_pass'] === true
+    );
+
+    // 2. Refugios de altura y miradores (basado en 'Tourism and Culture')
+    const tourismTag = poi.tags.tourism;
+    const isMountainTourism = (
+        tourismTag === 'alpine_hut' || 
+        tourismTag === 'wilderness_hut' || 
+        tourismTag === 'viewpoint'
+    );
+
+    // 3. Vértices geodésicos (basado en 'Infrastructure and Man-Made')
+    const manMadeTag = poi.tags.man_made;
+    const isSurveyPoint = (manMadeTag === 'survey_point');
+
+    return isNaturalPeakOrRelief || isMountainTourism || isSurveyPoint;
+}
+
 function mostrarOpcionesAvanzadas(id) {
     const poi = currentNominatimElements.find(el => el.id === id);
     if (!poi) return;
@@ -1321,6 +1369,25 @@ function mostrarOpcionesAvanzadas(id) {
     if (titleEl) {
         const name = poi.tags && poi.tags.name ? poi.tags.name : "Punto sin nombre";
         titleEl.textContent = name;
+    }
+
+    // --- DETECCIÓN INTELIGENTE ---
+    const usePeakFinder = esPuntoDeMontanaOPanoramico(poi);
+
+    const btnStreetView = document.getElementById("adv-btn-streetview");
+    if (btnStreetView) {
+        const iconEl = btnStreetView.querySelector(".control-icon");
+        const titleCardEl = btnStreetView.querySelector(".control-card-title");
+
+        if (usePeakFinder) {
+            btnStreetView.title = "Ver en PeakFinder";
+            if (iconEl) iconEl.src = "./ui-icons/fi-rr-mountains.svg";
+            if (titleCardEl) titleCardEl.textContent = "Abrir en PeakFinder";
+        } else {
+            btnStreetView.title = "Ver en Street View";
+            if (iconEl) iconEl.src = "./ui-icons/fi-rr-street-view.svg";
+            if (titleCardEl) titleCardEl.textContent = "Abrir en Street View (Google Maps)";
+        }
     }
 
     const panel = document.getElementById("advanced-options-panel");
@@ -1342,10 +1409,39 @@ function initAdvancedOptionsEvents() {
         btnShare.addEventListener("click", () => {
             const poi = currentNominatimElements.find(el => el.id === currentAdvancedPoiId);
             if (!poi) return;
+            
             const name = poi.tags && poi.tags.name ? poi.tags.name : "Punto de Interés";
+            
+            // Construir la descripción con los datos enriquecidos si los hay
+            let descText = "";
+            if (poi.enriquecido && poi.tagsEnriquecidas) {
+                const keysIgnorar = ["display_full", "normalized_name"];
+                const entries = [];
+                Object.keys(poi.tagsEnriquecidas).forEach(key => {
+                    if (keysIgnorar.includes(key)) return;
+                    const val = poi.tagsEnriquecidas[key];
+                    if (!val) return;
+                    entries.push(`${key}: ${val}`);
+                });
+                if (entries.length > 0) {
+                    descText = `Descripción del waypoint:\n${entries.join("\n")}\n\n`;
+                }
+            }
+
+            // Enlaces de mapas
             const gmaps = `https://www.google.com/maps/search/?api=1&query=${poi.lat},${poi.lon}`;
             const amaps = `http://maps.apple.com/?q=${poi.lat},${poi.lon}`;
-            const text = `📍 ${name}\nCoordenadas: ${poi.lat.toFixed(5)}, ${poi.lon.toFixed(5)}\n\nGoogle Maps: ${gmaps}\nApple Maps: ${amaps}`;
+            const oruxmaps = `https://oruxmaps.com/position?q=${poi.lat},${poi.lon}`;
+            const geoUri = `geo:${poi.lat},${poi.lon}?q=${poi.lat},${poi.lon}`;
+
+            // Texto final estructurado
+            const text = `Otro Mundo 🌎 posición compartida\n\n` +
+                         `Nombre del waypoint: ${name}\n\n` +
+                         descText +
+                         `${geoUri}\n` +
+                         `Google Maps: ${gmaps}\n` +
+                         `Apple Maps: ${amaps}\n` +
+                         `OruxMaps: ${oruxmaps}`;
             
             if (navigator.share) {
                 navigator.share({ title: name, text: text }).catch(() => {});
@@ -1370,12 +1466,27 @@ function initAdvancedOptionsEvents() {
         btnStreetView.addEventListener("click", () => {
             const poi = currentNominatimElements.find(el => el.id === currentAdvancedPoiId);
             if (!poi) return;
-            const url = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${poi.lat},${poi.lon}`;
-            window.open(url, '_blank');
+            
+            const usePeakFinder = esPuntoDeMontanaOPanoramico(poi);
+            
+            if (usePeakFinder) {
+                let ele = 0;
+                if (poi.tags && poi.tags.ele) {
+                    ele = parseFloat(poi.tags.ele) || 0;
+                } else if (poi.tagsEnriquecidas && poi.tagsEnriquecidas.ele) {
+                    ele = parseFloat(poi.tagsEnriquecidas.ele) || 0;
+                }
+                
+                const url = `https://www.peakfinder.org/es?lat=${poi.lat}&lng=${poi.lon}&ele=${ele}`;
+                window.open(url, '_blank');
+            } else {
+                const url = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${poi.lat},${poi.lon}`;
+                window.open(url, '_blank');
+            }
         });
     }
 
-        const btnEnrich = document.getElementById("adv-btn-enrich");
+    const btnEnrich = document.getElementById("adv-btn-enrich");
     if (btnEnrich) {
         btnEnrich.addEventListener("click", async () => {
             const poi = currentNominatimElements.find(el => el.id === currentAdvancedPoiId);
@@ -1404,7 +1515,6 @@ function initAdvancedOptionsEvents() {
             }
         });
     }
-
 
     const btnViewOsm = document.getElementById("adv-btn-view-osm");
     if (btnViewOsm) {
@@ -1438,13 +1548,45 @@ function initAdvancedOptionsEvents() {
     }
 }
 
+
+
+// --- EXPORTAR PDI INDIVIDUAL A KML (ESTILO ORUXMAPS) ---
 function exportarPoiIndividualAKml(poi) {
     const name = poi.tags && poi.tags.name ? poi.tags.name : "Punto sin nombre";
+    
+    // Construir el bloque de descripción línea a línea con <br/>
+    let descHtml = "";
+    if (poi.enriquecido && poi.tagsEnriquecidas) {
+        const keysIgnorar = ["display_full", "normalized_name"];
+        const entries = [];
+        Object.keys(poi.tagsEnriquecidas).forEach(key => {
+            if (keysIgnorar.includes(key)) return;
+            const val = poi.tagsEnriquecidas[key];
+            if (!val) return;
+            entries.push(`${key}: ${val}`);
+        });
+        descHtml = entries.join("<br/>\n");
+    } else {
+        // Si no está enriquecido previamente, añadimos los datos básicos que tenemos
+        descHtml = `osm_id: ${poi.id}<br/>\nname: ${name}`;
+    }
+
     let kml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
-    kml += `<kml xmlns="http://www.opengis.net/kml/2.2">\n<Document>\n`;
-    kml += `  <Placemark>\n    <name>${escapeXml(name)}</name>\n`;
-    kml += `    <Point><coordinates>${poi.lon},${poi.lat},0</coordinates></Point>\n`;
-    kml += `  </Placemark>\n</Document>\n</kml>`;
+    kml += `<kml xmlns="http://earth.google.com/kml/2.2" xmlns:om="http://www.oruxmaps.com/oruxmapsextensions/1/0" xmlns:gx="http://www.google.com/kml/ext/2.2">\n`;
+    kml += `<Document>\n`;
+    kml += `  <name><![CDATA[${name}]]></name>\n`;
+    kml += `  <Folder>\n`;
+    kml += `    <name>Waypoints</name>\n`;
+    kml += `    <Placemark>\n`;
+    kml += `      <name><![CDATA[${name}]]></name>\n`;
+    kml += `      <description><![CDATA[${descHtml}\n]]></description>\n`;
+    kml += `      <Point>\n`;
+    kml += `        <coordinates>${poi.lon},${poi.lat},0</coordinates>\n`;
+    kml += `      </Point>\n`;
+    kml += `    </Placemark>\n`;
+    kml += `  </Folder>\n`;
+    kml += `</Document>\n`;
+    kml += `</kml>`;
 
     const blob = new Blob([kml], { type: 'application/vnd.google-earth.kml+xml' });
     const url = URL.createObjectURL(blob);
@@ -1457,6 +1599,7 @@ function exportarPoiIndividualAKml(poi) {
     URL.revokeObjectURL(url);
     showToast("📥 KML individual descargado");
 }
+
 
 
 // --- ALGORITMO NATIVO PARA GENERAR PLUS CODES (OPEN LOCATION CODE) ---
@@ -1505,4 +1648,3 @@ function generarPlusCodeNativo(lat, lon) {
 
     return code;
 }
-
