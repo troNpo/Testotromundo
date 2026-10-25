@@ -1,0 +1,26 @@
+[
+    {
+        "title": "© OpenStreetMap contributors",
+        "description": "Datos geográficos principales y geocodificación mediante la API Nominatim. Licenciados bajo la Open Data Commons Open Database License (ODbL).",
+        "link": "https://www.openstreetmap.org/copyright",
+        "linkText": "openstreetmap.org/copyright"
+    },
+    {
+        "title": "MapLibre GL JS",
+        "description": "Motor de renderizado vectorial de mapas open-source de alto rendimiento.",
+        "link": "https://maplibre.org/",
+        "linkText": "maplibre.org"
+    },
+    {
+        "title": "Instituto Geográfico Nacional (IGN España)",
+        "description": "Servicios de teselas ráster e imágenes cartográficas oficiales de España.",
+        "link": "",
+        "linkText": ""
+    },
+    {
+        "title": "PeakFinder & Google Street View",
+        "description": "Integración dinámica de perfiles orográficos de montaña y vistas panorámicas.",
+        "link": "",
+        "linkText": ""
+    }
+]
