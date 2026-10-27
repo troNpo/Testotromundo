@@ -1,21 +1,45 @@
 [
     {
         "title": "© OpenStreetMap contributors",
-        "description": "Datos geográficos principales y geocodificación mediante la API Nominatim. Licenciados bajo la Open Data Commons Open Database License (ODbL).",
+        "description": "Base de datos geoespacial colaborativa mundial que alimenta los puntos de interés y la cartografía base mediante la API Nominatim. Licenciados bajo la Open Data Commons Open Database License (ODbL).",
         "link": "https://www.openstreetmap.org/copyright",
         "linkText": "openstreetmap.org/copyright"
     },
     {
+        "title": "OpenTopoMap",
+        "description": "Cartografía topográfica basada en datos de OpenStreetMap que incluye curvas de nivel y sombreado de relieve.",
+        "link": "https://opentopomap.org/",
+        "linkText": "opentopomap.org"
+    },
+    {
         "title": "MapLibre GL JS",
-        "description": "Motor de renderizado vectorial de mapas open-source de alto rendimiento.",
+        "description": "Librería principal de renderizado de mapas vectoriales y 3D de código abierto de alto rendimiento.",
         "link": "https://maplibre.org/",
         "linkText": "maplibre.org"
     },
     {
-        "title": "Instituto Geográfico Nacional (IGN España)",
-        "description": "Servicios de teselas ráster e imágenes cartográficas oficiales de España.",
+        "title": "Mapterhorn",
+        "description": "Herramientas y procesamiento avanzados para la generación de mallas de terreno y elevación 3D.",
         "link": "",
         "linkText": ""
+    },
+    {
+        "title": "Instituto Geográfico Nacional (IGN España)",
+        "description": "Servicios de teselas ráster, fuentes oficiales de cartografía e imágenes cartográficas oficiales de España.",
+        "link": "https://www.ign.es/",
+        "linkText": "ign.es"
+    },
+    {
+        "title": "Esri",
+        "description": "Proveedor de capas de imágenes satelitales y cartografía base global.",
+        "link": "https://www.esri.com/",
+        "linkText": "esri.com"
+    },
+    {
+        "title": "Flaticon (UIcons)",
+        "description": "Proveedor de la iconografía de interfaz utilizada en los botones, menús y barras de navegación.",
+        "link": "https://www.flaticon.com/",
+        "linkText": "flaticon.com"
     },
     {
         "title": "PeakFinder & Google Street View",

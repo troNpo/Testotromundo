@@ -43,6 +43,7 @@ btnMap?.addEventListener('click', () => {
 
     modalSelector.classList.add('active');
     
+    // Si la barra flotante de PDI está activa, mantenemos la barra general oculta
     const poiToolbar = document.getElementById('poi-map-toolbar');
     if (!poiToolbar) {
         bottomToolbar.classList.add('hidden');
@@ -52,6 +53,7 @@ btnMap?.addEventListener('click', () => {
 function closeLayerSelector() {
     modalSelector.classList.remove('active');
     
+    // Solo restauramos la barra general si NO estamos en la vista de mapa con PDI activos
     const poiToolbar = document.getElementById('poi-map-toolbar');
     if (!poiToolbar) {
         bottomToolbar.classList.remove('hidden');
@@ -71,6 +73,7 @@ layerRadios.forEach(radio => {
             selectStyle.value = selectedStyle;
         }
 
+        // Forzar que la barra general siga oculta si nos encontramos en el modo PDI
         const poiToolbar = document.getElementById('poi-map-toolbar');
         if (poiToolbar && bottomToolbar) {
             bottomToolbar.classList.add('hidden');
@@ -108,79 +111,14 @@ const controlCenterPanel = document.getElementById('control-center-panel');
 const btnSaveSettings = document.getElementById('btn-save-settings');
 
 btnMenu?.addEventListener('click', () => {
-    if (controlCenterPanel) controlCenterPanel.classList.remove('hidden');
-    if (bottomToolbar) bottomToolbar.classList.add('hidden');
+    controlCenterPanel.classList.remove('hidden');
+    bottomToolbar.classList.add('hidden');
 });
 
 btnClosePanel?.addEventListener('click', () => {
-    if (controlCenterPanel) controlCenterPanel.classList.add('hidden');
-    if (bottomToolbar) bottomToolbar.classList.remove('hidden');
+    controlCenterPanel.classList.add('hidden');
+    bottomToolbar.classList.remove('hidden');
 });
-
-// --- GESTIÓN DE ATRIBUCIONES DESDE JSON Y PAYPAL ---
-document.addEventListener("DOMContentLoaded", () => {
-    initAttributionsAndDonation();
-});
-
-function initAttributionsAndDonation() {
-    const btnAttributions = document.getElementById("btn-open-attributions");
-    const panelAttributions = document.getElementById("attributions-panel");
-    const btnCloseAttributions = document.getElementById("btn-close-attributions");
-    const containerBody = document.getElementById("attributions-container-body");
-
-    let attributionsLoaded = false;
-
-    if (btnAttributions && panelAttributions) {
-        btnAttributions.addEventListener("click", async (e) => {
-            e.preventDefault();
-            panelAttributions.classList.remove("hidden");
-
-            if (!attributionsLoaded && containerBody) {
-                try {
-                    const response = await fetch("attributions.json");
-                    const data = await response.json();
-                    
-                    let htmlContent = `
-                        <p style="font-size: 0.9rem; color: #ccc; line-height: 1.5; margin: 0;">
-                            <strong style="color: var(--primary-cyan);">Otro Mundo 🌎</strong> se nutre del esfuerzo de la comunidad global del software libre y los datos abiertos. Agradecemos profundamente el trabajo de los siguientes proyectos:
-                        </p>
-                    `;
-
-                    data.forEach(item => {
-                        htmlContent += `
-                            <div class="control-card" style="border-radius: 12px; background: rgba(18,18,20,0.8); border: 1px solid rgba(0,229,255,0.2); padding: 14px; flex-direction: column; align-items: flex-start; gap: 6px;">
-                                <div style="font-weight: bold; color: var(--primary-cyan); font-size: 1rem;">${item.title}</div>
-                                <div style="font-size: 0.85rem; color: #aaa; line-height: 1.4;">${item.description}</div>
-                                ${item.link ? `<a href="${item.link}" target="_blank" rel="noopener noreferrer" style="color: var(--primary-cyan); font-size: 0.8rem; text-decoration: underline; margin-top: 4px;">${item.linkText}</a>` : ''}
-                            </div>
-                        `;
-                    });
-
-                    containerBody.innerHTML = htmlContent;
-                    attributionsLoaded = true;
-                } catch (error) {
-                    containerBody.innerHTML = `<p style="color: #e74c3c; text-align: center;">Error al cargar las atribuciones.</p>`;
-                }
-            }
-        });
-    }
-
-    if (btnCloseAttributions && panelAttributions) {
-        btnCloseAttributions.addEventListener("click", () => {
-            panelAttributions.classList.add("hidden");
-        });
-    }
-
-    // Botón de Donación con PayPal
-    const btnDonation = document.getElementById("btn-open-donation");
-    if (btnDonation) {
-        btnDonation.addEventListener("click", (e) => {
-            e.preventDefault();
-            const paypalUrl = "https://www.paypal.com/donate?hosted_button_id=TU_ID_DE_PAYPAL"; 
-            window.open(paypalUrl, '_blank');
-        });
-    }
-}
 
 // Función global para acordeón
 window.toggleAccordion = function(headerElement) {
@@ -255,6 +193,8 @@ selectStyle?.addEventListener('change', (e) => {
     map.setStyle(newStyle);
 });
 
+
+
 if (btnSaveSettings) {
     btnSaveSettings.addEventListener('click', () => {
         localStorage.setItem('otromundo_style', selectStyle.value);
@@ -300,14 +240,59 @@ const btnBackToControl = document.getElementById('btn-back-to-control');
 
 if (btnPoiCard && poiFullscreenPanel) {
     btnPoiCard.addEventListener('click', () => {
-        controlCenterPanel.classList.add('hidden');    
-        poiFullscreenPanel.classList.remove('hidden'); 
+        controlCenterPanel.classList.add('hidden');    // Oculta el Centro de Control
+        poiFullscreenPanel.classList.remove('hidden'); // Muestra el panel de POIs a pantalla completa
     });
 }
 
 if (btnBackToControl && poiFullscreenPanel) {
     btnBackToControl.addEventListener('click', () => {
-        poiFullscreenPanel.classList.add('hidden');    
-        controlCenterPanel.classList.remove('hidden'); 
+        poiFullscreenPanel.classList.add('hidden');    // Oculta el panel de POIs
+        controlCenterPanel.classList.remove('hidden'); // Regresa al Centro de Control
     });
 }
+
+// --- LÓGICA PARA EL PANEL DE ATRIBUCIONES ---
+const btnOpenAttributions = document.getElementById('btn-open-attributions');
+const btnCloseAttributions = document.getElementById('btn-close-attributions');
+const attributionsPanel = document.getElementById('attributions-panel');
+const attributionsContainerBody = document.getElementById('attributions-container-body');
+
+// Abrir panel de Atribuciones y cargar JSON dinámicamente
+btnOpenAttributions?.addEventListener('click', () => {
+    controlCenterPanel.classList.add('hidden');
+    attributionsPanel.classList.remove('hidden');
+
+    if (attributionsContainerBody && attributionsContainerBody.children.length === 0) {
+        attributionsContainerBody.innerHTML = '<p style="color: var(--text-muted); text-align: center;">Cargando atribuciones...</p>';
+        
+        fetch('attributions.json')
+            .then(response => {
+                if (!response.ok) throw new Error('No se pudo cargar el archivo de atribuciones');
+                return response.json();
+            })
+            .then(data => {
+                attributionsContainerBody.innerHTML = '';
+                data.forEach(item => {
+                    const card = document.createElement('div');
+                    card.style.cssText = 'background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); padding: 14px; border-radius: 12px; display: flex; flex-direction: column; gap: 6px;';
+                    
+                    card.innerHTML = `
+                        <strong style="color: var(--primary-cyan); font-size: 0.95rem;">${item.title}</strong>
+                        <p style="margin: 0; font-size: 0.85rem; color: var(--text-main); line-height: 1.4;">${item.description}</p>
+                        ${item.link ? `<a href="${item.link}" target="_blank" rel="noopener noreferrer" style="color: var(--primary-cyan); font-size: 0.8rem; text-decoration: underline; margin-top: 4px;">${item.linkText || item.link}</a>` : ''}
+                    `;
+                    attributionsContainerBody.appendChild(card);
+                });
+            })
+            .catch(error => {
+                attributionsContainerBody.innerHTML = `<p style="color: #e74c3c; text-align: center;">Error al cargar las atribuciones: ${error.message}</p>`;
+            });
+    }
+});
+
+// Cerrar panel de Atribuciones y volver al Centro de Control
+btnCloseAttributions?.addEventListener('click', () => {
+    attributionsPanel.classList.add('hidden');
+    controlCenterPanel.classList.remove('hidden');
+});
