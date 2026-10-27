@@ -8,6 +8,7 @@ const LayerManager = {
         searchedPOIs: [], // PDI seleccionados tras la búsqueda
         externalTracks: [] // Preparado para futuros GPX / KML
     },
+    activeMapMarkers: [], // Array para almacenar los markers visuales de MapLibre
 
     init() {
         this.setupEventListeners();
@@ -29,6 +30,9 @@ const LayerManager = {
         if (btnBack) {
             btnBack.addEventListener("click", () => {
                 document.getElementById("layer-manager-panel").classList.add("hidden");
+                // Asegurar que la barra general del visor esté visible al volver al mapa
+                const bottomToolbar = document.getElementById("bottom-toolbar");
+                if (bottomToolbar) bottomToolbar.classList.remove("hidden");
             });
         }
 
@@ -38,43 +42,79 @@ const LayerManager = {
             btnViewOnMap.addEventListener("click", () => {
                 let selected = [];
 
-                // 1. Intentar obtener los PDI cuyos checkboxes estén marcados en el DOM
+                // 1. Buscar los checkboxes marcados en el DOM del gestor de PDI
                 const checkedBoxes = document.querySelectorAll(".poi-select-checkbox:checked");
-                if (checkedBoxes.length > 0 && typeof currentNominatimElements !== 'undefined') {
-                    const checkedIds = Array.from(checkedBoxes).map(chk => parseInt(chk.getAttribute("data-id")));
-                    selected = currentNominatimElements.filter(el => checkedIds.includes(el.id));
+                
+                if (checkedBoxes.length > 0) {
+                    checkedBoxes.forEach(chk => {
+                        const id = parseInt(chk.getAttribute("data-id"));
+                        // Intentar buscar en el array global actual
+                        let poiData = typeof currentNominatimElements !== 'undefined' 
+                            ? currentNominatimElements.find(el => el.id === id) 
+                            : null;
+
+                        // Si no está en el array global, extraer los datos directamente de la tarjeta visual (DOM)
+                        if (!poiData) {
+                            const card = chk.closest(".node-card");
+                            if (card) {
+                                const name = card.querySelector(".node-name")?.textContent || "Punto sin nombre";
+                                const metaText = card.querySelector(".node-meta")?.textContent || "";
+                                // Intentar extraer lat/lon si están guardados o calcular aproximados del centro actual
+                                poiData = {
+                                    id: id,
+                                    nombre: name,
+                                    tags: { name: name },
+                                    lat: typeof currentLat !== 'undefined' ? currentLat : 37.3414,
+                                    lon: typeof currentLon !== 'undefined' ? currentLon : -5.9304
+                                };
+                            }
+                        }
+
+                        if (poiData) selected.push(poiData);
+                    });
                 }
 
-                // 2. Si no hay ninguno marcado explícitamente, usar todos los elementos actuales del gestor
-                if (selected.length === 0 && typeof currentNominatimElements !== 'undefined' && currentNominatimElements.length > 0) {
-                    selected = [...currentNominatimElements];
-                }
-
+                // Si no hay ninguna tarjeta marcada, mostrar aviso obligatorio y frenar
                 if (selected.length === 0) {
-                    alert("Por favor, realiza una búsqueda o selecciona al menos un PDI para ver en el mapa.");
+                    alert("Por favor, selecciona al menos un PDI para ver en el mapa.");
+                    if (typeof showToast === 'function') {
+                        showToast("⚠️ Por favor, selecciona al menos un PDI");
+                    }
                     return;
                 }
 
-                // Mapear los datos al formato que espera el gestor de capas (asegurando nombre y categoría limpios)
+                // Mapear de forma segura para el gestor de capas
                 const formattedPOIs = selected.map(poi => ({
                     id: poi.id,
-                    nombre: poi.tags && poi.tags.name ? poi.tags.name : "Punto sin nombre",
+                    nombre: poi.tags && poi.tags.name ? poi.tags.name : (poi.nombre || "Punto sin nombre"),
                     categoria: poi.tags && (poi.tags.amenity || poi.tags.tourism || poi.tags.shop || poi.tags.natural || 'PDI'),
                     lat: poi.lat,
                     lon: poi.lon,
+                    tags: poi.tags || {},
                     distancia: typeof calcularDistanciaKm === 'function' && typeof currentLat !== 'undefined' 
                         ? `${calcularDistanciaKm(currentLat, currentLon, poi.lat, poi.lon).toFixed(1)} km` 
                         : ''
                 }));
 
-                // Cargamos en el gestor de capas
+                // Limpiar barra específica de Nominatim si existía
+                const existingToolbar = document.getElementById("poi-map-toolbar");
+                if (existingToolbar) existingToolbar.remove();
+
+                // Mostrar la barra general del visor inferior
+                const bottomToolbar = document.getElementById("bottom-toolbar");
+                if (bottomToolbar) bottomToolbar.classList.remove("hidden");
+
+                // Ocultar cursor central del mapa
+                const mapCursor = document.getElementById("map-center-cursor");
+                if (mapCursor) mapCursor.style.display = "none";
+
+                // Cargamos en el gestor de capas y pintamos
                 this.loadPOIsAsLayer(formattedPOIs);
 
                 // Ocultamos el panel de resultados y volvemos al mapa
                 document.getElementById("results-panel").style.display = "none";
             });
         }
-
 
         // 4. Botón "Listado" desde el panel inferior de detalle de PDI en el mapa
         const detailBtnAction = document.getElementById("detail-btn-action");
@@ -93,11 +133,11 @@ const LayerManager = {
         this.renderLayerManagerPanel();
         this.paintMarkersOnMap();
 
-        // Ajustar zoom del mapa para abarcar todos los puntos si hay elementos
+        // Ajustar zoom del mapa para abarcar todos los puntos
         if (pois.length > 0 && typeof map !== 'undefined') {
             const bounds = new maplibregl.LngLatBounds();
             pois.forEach(p => bounds.extend([p.lon, p.lat]));
-            map.fitBounds(bounds, { padding: 60, maxZoom: 16 });
+            map.fitBounds(bounds, { padding: 80, maxZoom: 15, duration: 1200 });
         }
     },
 
@@ -137,7 +177,6 @@ const LayerManager = {
                 </div>
             `;
 
-            // Eventos de tarjeta
             card.querySelector(".btn-focus-poi").addEventListener("click", () => {
                 this.focusOnPOI(poi);
             });
@@ -150,76 +189,44 @@ const LayerManager = {
         });
     },
 
-    // Pintar los puntos como fuente GeoJSON en MapLibre GL
+    // Pintar los puntos utilizando marcadores idénticos a los del visor principal de PDI
     paintMarkersOnMap() {
         if (typeof map === 'undefined') return;
 
-        const features = this.activeLayers.searchedPOIs.map(poi => ({
-            type: 'Feature',
-            geometry: {
-                type: 'Point',
-                coordinates: [poi.lon, poi.lat]
-            },
-            properties: {
-                nombre: poi.nombre,
-                categoria: poi.categoria || 'PDI',
-                lat: poi.lat,
-                lon: poi.lon
-            }
-        }));
+        // Limpiar marcadores anteriores
+        this.activeMapMarkers.forEach(item => item.marker.remove());
+        this.activeMapMarkers = [];
 
-        const geojson = {
-            type: 'FeatureCollection',
-            features: features
-        };
+        this.activeLayers.searchedPOIs.forEach(poi => {
+            const colorPin = typeof obtenerColorPorTag === 'function' ? obtenerColorPorTag(poi.tags) : '#00e5ff';
 
-        // Si ya existe la fuente, actualizamos los datos; si no, la creamos
-        if (map.getSource('layer-pois-source')) {
-            map.getSource('layer-pois-source').setData(geojson);
-        } else {
-            map.addSource('layer-pois-source', {
-                type: 'geojson',
-                data: geojson
+            const marker = new maplibregl.Marker({ color: colorPin })
+                .setLngLat([poi.lon, poi.lat])
+                .addTo(map);
+
+            marker.getElement().addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.showLayerItemDetail(poi);
             });
 
-            map.addLayer({
-                id: 'layer-pois-layer',
-                type: 'circle',
-                source: 'layer-pois-source',
-                paint: {
-                    'circle-radius': 8,
-                    'circle-color': '#00e5ff',
-                    'circle-stroke-width': 2,
-                    'circle-stroke-color': '#ffffff'
-                }
-            });
-
-            // Evento click en los marcadores del mapa
-            map.on('click', 'layer-pois-layer', (e) => {
-                const props = e.features[0].properties;
-                this.showLayerItemDetail(props);
-            });
-
-            // Cambiar cursor al pasar sobre los puntos
-            map.on('mouseenter', 'layer-pois-layer', () => {
-                map.getCanvas().style.cursor = 'pointer';
-            });
-            map.on('mouseleave', 'layer-pois-layer', () => {
-                map.getCanvas().style.cursor = '';
-            });
-        }
+            this.activeMapMarkers.push({ id: poi.id, marker: marker, data: poi });
+        });
     },
 
     // Centrar mapa en un PDI específico y abrir su detalle
     focusOnPOI(poi) {
         document.getElementById("layer-manager-panel").classList.add("hidden");
+        
+        const bottomToolbar = document.getElementById("bottom-toolbar");
+        if (bottomToolbar) bottomToolbar.classList.remove("hidden");
+
         if (typeof map !== 'undefined') {
-            map.flyTo({ center: [poi.lon, poi.lat], zoom: 16 });
+            map.flyTo({ center: [poi.lon, poi.lat], zoom: 16, duration: 1000 });
         }
         this.showLayerItemDetail(poi);
     },
 
-    // Mostrar panel inferior de detalle del PDI
+    // Mostrar panel inferior de detalle del PDI garantizando la barra del visor general
     showLayerItemDetail(poi) {
         const detailPanel = document.getElementById("map-poi-detail-panel");
         if (!detailPanel) return;
@@ -230,9 +237,18 @@ const LayerManager = {
         
         detailPanel.style.display = "flex";
 
-        // Configurar botón cerrar detalle
+        // Asegurar que no quede la barra flotante de Nominatim
+        const existingToolbar = document.getElementById("poi-map-toolbar");
+        if (existingToolbar) existingToolbar.remove();
+
+        // Asegurar que la barra inferior general del visor esté visible
+        const bottomToolbar = document.getElementById("bottom-toolbar");
+        if (bottomToolbar) bottomToolbar.classList.remove("hidden");
+
+        // Configurar botón cerrar detalle (X) para que mantenga la barra general del visor
         document.getElementById("detail-btn-close").onclick = () => {
             detailPanel.style.display = "none";
+            if (bottomToolbar) bottomToolbar.classList.remove("hidden");
         };
 
         // Configurar botón eliminar individual desde el detalle
@@ -241,20 +257,31 @@ const LayerManager = {
             if (index !== -1) {
                 this.removePOI(index);
                 detailPanel.style.display = "none";
+                if (bottomToolbar) bottomToolbar.classList.remove("hidden");
             }
         };
     },
 
     // Eliminar un PDI de la capa activa
     removePOI(index) {
-        this.activeLayers.searchedPOIs.splice(index, 1);
+        const removed = this.activeLayers.searchedPOIs.splice(index, 1)[0];
+        
+        if (removed) {
+            const markerIndex = this.activeMapMarkers.findIndex(m => m.id === removed.id);
+            if (markerIndex !== -1) {
+                this.activeMapMarkers[markerIndex].marker.remove();
+                this.activeMapMarkers.splice(markerIndex, 1);
+            }
+        }
+
         this.renderLayerManagerPanel();
         this.paintMarkersOnMap();
 
-        // Si se vacía la capa, ocultamos el panel de detalle si estuviera abierto
         if (this.activeLayers.searchedPOIs.length === 0) {
             const detailPanel = document.getElementById("map-poi-detail-panel");
             if (detailPanel) detailPanel.style.display = "none";
+            const bottomToolbar = document.getElementById("bottom-toolbar");
+            if (bottomToolbar) bottomToolbar.classList.remove("hidden");
         }
     }
 };
