@@ -1,0 +1,41 @@
+name: Deploy PWA to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main  # O 'master' según la rama principal
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Inyectar MapTiler API Key
+        run: |
+          sed -i 's/{{API_KEY}}/${{ secrets.MAPTILER_API_KEY }}/g' styles/OtroCicloMundo.json
+
+      - name: Configurar Pages
+        uses: actions/configure-pages@v5
+
+      - name: Subir artefacto de Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'
+
+      - name: Desplegar a GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
