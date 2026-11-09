@@ -4,7 +4,7 @@ push:
 branches:
 - main
 permissions:
-contents: write
+contents: read
 pages: write
 id-token: write
 concurrency:
@@ -24,10 +24,7 @@ env:
 MAPTILER_KEY: ${{ secrets.MAPTILER_API_KEY }}
 run: |
 if [ -n "$MAPTILER_KEY" ]; then
-find . -type f ( -name ".json" -o -name ".html" ) -exec sed -i "s|{{API_KEY}}|$MAPTILER_KEY|g" {} +
-echo "API Key inyectada correctamente."
-else
-echo "Aviso: MAPTILER_API_KEY no definida en los Secrets."
+sed -i "s/{{API_KEY}}/$MAPTILER_KEY/g" styles/OtroMundo.json || true
 fi
 - name: Configurar Pages
 uses: actions/configure-pages@v5
