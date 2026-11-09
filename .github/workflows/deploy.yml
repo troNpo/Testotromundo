@@ -20,9 +20,17 @@ steps:
 - name: Checkout código
 uses: actions/checkout@v4
 - name: Inyectar MapTiler API Key
+env:
+API_KEY: ${{ secrets.MAPTILER_API_KEY }}
 run: |
 if [ -f "styles/OtroMundo.json" ]; then
-sed -i 's/{{API_KEY}}/${{ secrets.MAPTILER_API_KEY }}/g' styles/OtroMundo.json
+sed -i "s|{{API_KEY}}|$API_KEY|g" styles/OtroMundo.json
+echo "Clave inyectada en styles/OtroMundo.json"
+elif [ -f "styles/otromundo.json" ]; then
+sed -i "s|{{API_KEY}}|$API_KEY|g" styles/otromundo.json
+echo "Clave inyectada en styles/otromundo.json"
+else
+echo "No se encontró el archivo de estilo en styles/"
 fi
 - name: Configurar Pages
 uses: actions/configure-pages@v5
