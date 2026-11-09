@@ -23,16 +23,20 @@ uses: actions/checkout@v4
 env:
 MAPTILER_KEY: ${{ secrets.MAPTILER_API_KEY }}
 run: |
-if [ -n "$MAPTILER_KEY" ]; then
-for file in styles/OtroMundo.json styles/OtroCicloMundo.json; do
-if [ -f "$file" ]; then
-echo "Inyectando API Key en $file..."
-sed -i "s/{{API_KEY}}/$MAPTILER_KEY/g" "$file"
-fi
-done
-else
-echo "Aviso: MAPTILER_API_KEY no está configurado en los Secrets del repositorio."
-fi
+python3 -c "
+import os, glob
+key = os.environ.get('MAPTILER_KEY', '')
+if key:
+for filepath in glob.glob('styles/*.json'):
+with open(filepath, 'r', encoding='utf-8') as f:
+content = f.read()
+new_content = content.replace('{{API_KEY}}', key)
+with open(filepath, 'w', encoding='utf-8') as f:
+f.write(new_content)
+print('Clave MapTiler reemplazada exitosamente en estilos JSON.')
+else:
+print('Aviso: MAPTILER_API_KEY no encontrada en los secrets.')
+"
 - name: Configurar Pages
 uses: actions/configure-pages@v5
 - name: Subir artefacto de Pages
