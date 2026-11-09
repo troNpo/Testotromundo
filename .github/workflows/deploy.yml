@@ -20,23 +20,10 @@ steps:
 - name: Checkout código
 uses: actions/checkout@v4
 - name: Inyectar MapTiler API Key
-env:
-MAPTILER_KEY: ${{ secrets.MAPTILER_API_KEY }}
 run: |
-python3 -c "
-import os, glob
-key = os.environ.get('MAPTILER_KEY', '')
-if key:
-for filepath in glob.glob('styles/*.json'):
-with open(filepath, 'r', encoding='utf-8') as f:
-content = f.read()
-new_content = content.replace('{{API_KEY}}', key)
-with open(filepath, 'w', encoding='utf-8') as f:
-f.write(new_content)
-print('Clave MapTiler reemplazada exitosamente en estilos JSON.')
-else:
-print('Aviso: MAPTILER_API_KEY no encontrada en los secrets.')
-"
+if [ -f "styles/OtroMundo.json" ]; then
+sed -i 's/{{API_KEY}}/${{ secrets.MAPTILER_API_KEY }}/g' styles/OtroMundo.json
+fi
 - name: Configurar Pages
 uses: actions/configure-pages@v5
 - name: Subir artefacto de Pages
