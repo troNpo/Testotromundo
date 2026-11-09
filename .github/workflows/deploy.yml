@@ -26,8 +26,8 @@ jobs:
 
       - name: Inyectar MapTiler API Key
         run: |
-          if [ -f "styles/OtroCicloMundo.json" ]; then
-            sed -i 's/{{API_KEY}}/${{ secrets.MAPTILER_API_KEY }}/g' styles/OtroCicloMundo.json
+          if [ -f "styles/OtroMundo.json" ]; then
+            sed -i 's/{{API_KEY}}/${{ secrets.MAPTILER_API_KEY }}/g' styles/OtroMundo.json
           fi
 
       - name: Configurar Pages
