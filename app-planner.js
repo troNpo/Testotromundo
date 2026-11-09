@@ -2,7 +2,7 @@
 // APLICACIÓN UNIFICADA: PLANIFICADOR + GRÁFICA + LISTA LATERAL + MAPAS + PERFILES + ZURDOS + REORDENAMIENTO + DESTINOS Y PUNTOS DE PASO + GUÍA RÁPIDA + ATRIBUCIONES
 // ==========================================
 
-const savedStyle = localStorage.getItem('otromundo_style') || 'styles/OtroMundo.json';
+const savedStyle = localStorage.getItem('otromundo_style') || 'styles/osm.json';
 
 const map = new maplibregl.Map({
     container: 'map',
@@ -76,7 +76,7 @@ const RoutePlanner = {
 
     syncSavedMapUI() {
         // Marca el radio button correspondiente al estilo guardado en localStorage
-        const currentSavedStyle = localStorage.getItem('otromundo_style') || 'styles/OtroMundo.json';
+        const currentSavedStyle = localStorage.getItem('otromundo_style') || 'styles/osm.json';
         const radioToSelect = document.querySelector(`input[name="basemap"][value="${currentSavedStyle}"]`);
         if (radioToSelect) {
             radioToSelect.checked = true;
