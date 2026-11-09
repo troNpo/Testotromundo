@@ -20,11 +20,9 @@ steps:
 - name: Checkout código
 uses: actions/checkout@v4
 - name: Inyectar MapTiler API Key
-env:
-MAPTILER_KEY: ${{ secrets.MAPTILER_API_KEY }}
 run: |
-if [ -n "$MAPTILER_KEY" ]; then
-sed -i "s/{{API_KEY}}/$MAPTILER_KEY/g" styles/OtroMundo.json || true
+if [ -f "styles/OtroMundo.json" ]; then
+sed -i 's/{{API_KEY}}/${{ secrets.MAPTILER_API_KEY }}/g' styles/OtroMundo.json
 fi
 - name: Configurar Pages
 uses: actions/configure-pages@v5
