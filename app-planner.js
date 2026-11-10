@@ -2,7 +2,7 @@
 // APLICACIÓN UNIFICADA: PLANIFICADOR + GRÁFICA + LISTA LATERAL + MAPAS + PERFILES + ZURDOS + REORDENAMIENTO + DESTINOS Y PUNTOS DE PASO + GUÍA RÁPIDA + ATRIBUCIONES
 // ==========================================
 
-const savedStyle = localStorage.getItem('otromundo_style') || 'styles/osm.json';
+const savedStyle = localStorage.getItem('otromundo_style') || 'styles/otromundo.json';
 
 const map = new maplibregl.Map({
     container: 'map',
