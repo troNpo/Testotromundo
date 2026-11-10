@@ -76,7 +76,7 @@ const RoutePlanner = {
 
     syncSavedMapUI() {
         // Marca el radio button correspondiente al estilo guardado en localStorage
-        const currentSavedStyle = localStorage.getItem('otromundo_style') || 'styles/osm.json';
+        const currentSavedStyle = localStorage.getItem('otromundo_style') || 'styles/otromundo.json';
         const radioToSelect = document.querySelector(`input[name="basemap"][value="${currentSavedStyle}"]`);
         if (radioToSelect) {
             radioToSelect.checked = true;
