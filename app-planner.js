@@ -679,94 +679,177 @@ const RoutePlanner = {
             const allSameProfile = this.segments.every(s => s.profile === firstProfile);
             const isManual = firstProfile === "manual-straight";
 
-            const altCount = (this.maxAlternatives > 0 && allSameProfile && !isManual) ? this.maxAlternatives : 0;
-            const routesVariants = [];
+            // Si hay alternativas configuradas (>0) y no hay perfiles mixtos ni manuales
+            if (this.maxAlternatives > 0 && allSameProfile && !isManual) {
+                const lonlatsStr = this.points.map(p => `${p.coords[0]},${p.coords[1]}`).join('|');
+                const altPromises = [];
 
-            const lonlatsStr = this.points.map(p => `${p.coords[0]},${p.coords[1]}`).join('|');
-
-            for (let altIdx = 0; altIdx <= altCount; altIdx++) {
-                if (isManual) {
-                    let combinedCoordinates = [];
-                    let totalDistM = 0;
-
-                    for (let i = 0; i < this.points.length - 1; i++) {
-                        const p1 = this.points[i].coords;
-                        const p2 = this.points[i + 1].coords;
-                        const distanceMeters = this.haversine(p1[1], p1[0], p2[1], p2[0]);
-                        totalDistM += distanceMeters;
-
-                        const steps = Math.max(2, Math.floor(distanceMeters / 100));
-                        for (let s = 0; s <= steps; s++) {
-                            const t = s / steps;
-                            const lng = p1[0] + (p2[0] - p1[0]) * t;
-                            const lat = p1[1] + (p2[1] - p1[1]) * t;
-                            const ele1 = p1[2] !== undefined ? p1[2] : 0;
-                            const ele2 = p2[2] !== undefined ? p2[2] : 0;
-                            const ele = ele1 + (ele2 - ele1) * t;
-
-                            if (i > 0 && s === 0) continue;
-                            combinedCoordinates.push([lng, lat, ele]);
-                        }
-                    }
-
-                    const manualSeconds = totalDistM / (5.0 * 1000 / 3600);
-                    routesVariants.push({
-                        index: 0,
-                        coordinates: combinedCoordinates,
-                        distKm: (totalDistM / 1000).toFixed(2),
-                        timeStr: this.formatBRouterTime(manualSeconds, totalDistM, firstProfile),
-                        ascent: 0,
-                        descent: 0
-                    });
-                    break;
-                } else {
+                for (let altIdx = 0; altIdx <= this.maxAlternatives; altIdx++) {
                     const url = `https://brouter.de/brouter?lonlats=${lonlatsStr}&profile=${firstProfile}&alternativeidx=${altIdx}&format=geojson`;
-                    
-                    try {
-                        const res = await fetch(url);
-                        const data = await res.json();
-                        const feature = data?.features?.[0];
-                        const coords = feature?.geometry?.coordinates;
+                    altPromises.push(
+                        fetch(url)
+                            .then(res => res.json())
+                            .then(data => ({ altIdx, data }))
+                            .catch(err => {
+                                console.warn(`No se pudo obtener la alternativa ${altIdx}:`, err);
+                                return null;
+                            })
+                    );
+                }
 
-                        if (coords && coords.length > 0) {
-                            const props = feature?.properties || {};
-                            const travelTime = parseFloat(props['total-time'] || props.time || props.traveltime || 0);
-                            let totalDistM = 0;
-                            let totalAscent = 0;
-                            let totalDescent = 0;
+                const results = await Promise.all(altPromises);
+                const validRoutes = [];
 
-                            for (let j = 0; j < coords.length - 1; j++) {
-                                const c1 = coords[j], c2 = coords[j + 1];
-                                const dSeg = this.haversine(c1[1], c1[0], c2[1], c2[0]);
-                                totalDistM += dSeg;
-                                const diff = (c2[2] || 0) - (c1[2] || 0);
-                                if (diff > 0) totalAscent += diff; else totalDescent += Math.abs(diff);
-                            }
+                results.forEach((item) => {
+                    if (!item || !item.data || !item.data.features || item.data.features.length === 0) return;
 
-                            routesVariants.push({
-                                index: routesVariants.length,
-                                coordinates: coords,
-                                distKm: (totalDistM / 1000).toFixed(2),
-                                timeStr: this.formatBRouterTime(travelTime, totalDistM, firstProfile),
-                                ascent: Math.round(totalAscent),
-                                descent: Math.round(totalDescent)
-                            });
+                    const feature = item.data.features[0];
+                    const coords = feature.geometry?.coordinates || [];
+                    if (coords.length < 2) return;
+
+                    const props = feature.properties || {};
+                    let totalDistM = parseFloat(props['track-length'] || props.distance || 0);
+                    let totalSeconds = parseFloat(props['total-time'] || props.time || props.traveltime || 0);
+
+                    let totalAscent = 0;
+                    let totalDescent = 0;
+
+                    for (let j = 0; j < coords.length - 1; j++) {
+                        const c1 = coords[j], c2 = coords[j + 1];
+                        if (totalDistM === 0) {
+                            totalDistM += this.haversine(c1[1], c1[0], c2[1], c2[0]);
                         }
-                    } catch (err) {
-                        console.warn("Fallo al obtener alternativa BRouter:", err);
+                        const diff = (c2[2] || 0) - (c1[2] || 0);
+                        if (diff > 0) totalAscent += diff; else totalDescent += Math.abs(diff);
                     }
+
+                    const distKm = (totalDistM / 1000).toFixed(2);
+                    const timeStr = this.formatBRouterTime(totalSeconds, totalDistM, firstProfile);
+
+                    validRoutes.push({
+                        index: validRoutes.length,
+                        coordinates: coords,
+                        distKm,
+                        timeStr,
+                        ascent: Math.round(totalAscent),
+                        descent: Math.round(totalDescent)
+                    });
+                });
+
+                if (validRoutes.length > 0) {
+                    this.routesList = validRoutes;
+                    this.currentRouteIndex = 0;
+                    this.activateRouteVariant(0);
+                    this.updateAltButtonVisibility();
+                    return;
                 }
             }
 
-            if (routesVariants.length > 0) {
-                this.routesList = routesVariants;
-                this.currentRouteIndex = Math.min(this.currentRouteIndex, routesVariants.length - 1);
-                this.activateRouteVariant(this.currentRouteIndex);
-                this.updateAltButtonVisibility();
+            // Lógica por tramos (cuando hay perfiles personalizados por tramo o maxAlternatives === 0)
+            const segmentFetchPromises = [];
+
+            for (let i = 0; i < this.points.length - 1; i++) {
+                const p1 = this.points[i].coords;
+                const p2 = this.points[i + 1].coords;
+                const segProfile = this.segments[i]?.profile || this.profile;
+
+                if (segProfile === "manual-straight") {
+                    const straightCoords = [];
+                    const distanceMeters = this.haversine(p1[1], p1[0], p2[1], p2[0]);
+                    const steps = Math.max(2, Math.floor(distanceMeters / 100));
+                    
+                    for (let s = 0; s <= steps; s++) {
+                        const t = s / steps;
+                        const lng = p1[0] + (p2[0] - p1[0]) * t;
+                        const lat = p1[1] + (p2[1] - p1[1]) * t;
+                        const ele1 = p1[2] !== undefined ? p1[2] : 0;
+                        const ele2 = p2[2] !== undefined ? p2[2] : 0;
+                        const ele = ele1 + (ele2 - ele1) * t;
+                        
+                        straightCoords.push([lng, lat, ele]);
+                    }
+
+                    const manualSeconds = distanceMeters / (5.0 * 1000 / 3600);
+
+                    segmentFetchPromises.push(
+                        Promise.resolve({
+                            coordinates: straightCoords,
+                            travelTime: manualSeconds,
+                            profile: segProfile
+                        })
+                    );
+                } else {
+                    const url = `https://brouter.de/brouter?lonlats=${p1[0]},${p1[1]}|${p2[0]},${p2[1]}&profile=${segProfile}&alternativeidx=0&format=geojson`;
+                    
+                    segmentFetchPromises.push(
+                        fetch(url)
+                            .then(res => res.json())
+                            .then(data => {
+                                const feature = data?.features?.[0];
+                                const coords = feature?.geometry?.coordinates || [p1, p2];
+                                const props = feature?.properties || {};
+                                const travelTime = parseFloat(props['total-time'] || props.time || props.traveltime || 0);
+                                
+                                return {
+                                    coordinates: coords,
+                                    travelTime: travelTime,
+                                    profile: segProfile
+                                };
+                            })
+                            .catch(() => ({
+                                coordinates: [p1, p2],
+                                travelTime: 0,
+                                profile: segProfile
+                            }))
+                    );
+                }
             }
 
+            const segmentResults = await Promise.all(segmentFetchPromises);
+
+            let combinedCoordinates = [];
+            let totalDistM = 0;
+            let totalAscent = 0;
+            let totalDescent = 0;
+            let totalSeconds = 0;
+
+            segmentResults.forEach((segRes, idx) => {
+                const coords = segRes.coordinates;
+                totalSeconds += (segRes.travelTime || 0);
+
+                if (idx > 0 && combinedCoordinates.length > 0) {
+                    combinedCoordinates.push(...coords.slice(1));
+                } else {
+                    combinedCoordinates.push(...coords);
+                }
+
+                for (let j = 0; j < coords.length - 1; j++) {
+                    const c1 = coords[j], c2 = coords[j + 1];
+                    const dSeg = this.haversine(c1[1], c1[0], c2[1], c2[0]);
+                    totalDistM += dSeg;
+                    const diff = (c2[2] || 0) - (c1[2] || 0);
+                    if (diff > 0) totalAscent += diff; else totalDescent += Math.abs(diff);
+                }
+            });
+
+            const distKm = (totalDistM / 1000).toFixed(2);
+            const timeStr = this.formatBRouterTime(totalSeconds, totalDistM, this.profile);
+
+            this.routesList = [{
+                index: 0,
+                coordinates: combinedCoordinates,
+                distKm,
+                timeStr,
+                ascent: Math.round(totalAscent),
+                descent: Math.round(totalDescent)
+            }];
+
+            this.currentRouteIndex = 0;
+            this.activateRouteVariant(0);
+            this.updateAltButtonVisibility();
+
         } catch (e) {
-            console.error("Error general al calcular la ruta:", e);
+            console.error("Error al calcular la ruta:", e);
         }
     },
 
@@ -1066,18 +1149,18 @@ const RoutePlanner = {
 
         this.clearRoute();
 
+        // Colors palette for inactive alternative routes
         const altColors = ['#ff9800', '#ab47bc', '#4caf50'];
 
+        // 1. DIBUJAR RUTAS ALTERNATIVAS INACTIVAS EN SEGUNDO PLANO (TRANSPARENTES)
         this.routesList.forEach((route, idx) => {
-            if (idx === this.currentRouteIndex) return;
+            if (idx === this.currentRouteIndex) return; // Se dibuja después como activa
 
             const altSourceId = `inactive-alt-source-${idx}`;
             const geojson = { type: 'Feature', geometry: { type: 'LineString', coordinates: route.coordinates } };
 
             if (!map.getSource(altSourceId)) {
                 map.addSource(altSourceId, { type: 'geojson', data: geojson });
-            } else {
-                map.getSource(altSourceId).setData(geojson);
             }
 
             const altColor = altColors[(idx - 1) % altColors.length] || '#ff9800';
@@ -1101,31 +1184,96 @@ const RoutePlanner = {
             }
         });
 
+        // 2. DIBUJAR LA RUTA ACTIVA DESTACADA POR SEGMENTOS / BGLOBAL
         const activeRoute = this.routesList[this.currentRouteIndex];
-        const activeSourceId = 'active-route-source';
-        const geojsonActive = { type: 'Feature', geometry: { type: 'LineString', coordinates: activeRoute.coordinates } };
+        this.syncSegmentsArray();
 
-        if (!map.getSource(activeSourceId)) {
-            map.addSource(activeSourceId, { type: 'geojson', data: geojsonActive });
-        } else {
-            map.getSource(activeSourceId).setData(geojsonActive);
-        }
+        if (this.segments.length > 0 && this.points.length >= 2) {
+            let coordIndex = 0;
 
-        if (!map.getLayer('active-route-casing')) {
-            map.addLayer({
-                id: 'active-route-casing',
-                type: 'line',
-                source: activeSourceId,
-                paint: { 'line-color': '#121212', 'line-width': 7.5, 'line-opacity': 0.85 }
+            this.segments.forEach((seg, sIdx) => {
+                const nextPoint = this.points[sIdx + 1];
+                if (!nextPoint) return;
+
+                const subCoords = [];
+                while (coordIndex < activeRoute.coordinates.length) {
+                    const pt = activeRoute.coordinates[coordIndex];
+                    subCoords.push(pt);
+
+                    const distToNext = this.haversine(pt[1], pt[0], nextPoint.coords[1], nextPoint.coords[0]);
+                    coordIndex++;
+
+                    if (distToNext < 40 && sIdx < this.segments.length - 1) {
+                        break;
+                    }
+                }
+
+                if (sIdx === this.segments.length - 1) {
+                    while (coordIndex < activeRoute.coordinates.length) {
+                        subCoords.push(activeRoute.coordinates[coordIndex]);
+                        coordIndex++;
+                    }
+                }
+
+                if (subCoords.length < 2 && activeRoute.coordinates.length >= 2) {
+                    subCoords.push(activeRoute.coordinates[activeRoute.coordinates.length - 1]);
+                }
+
+                const segSourceId = `active-segment-source-${sIdx}`;
+                if (!map.getSource(segSourceId)) {
+                    map.addSource(segSourceId, {
+                        type: 'geojson',
+                        data: { type: 'Feature', geometry: { type: 'LineString', coordinates: subCoords } }
+                    });
+                }
+
+                if (!map.getLayer(`active-segment-casing-${sIdx}`)) {
+                    map.addLayer({
+                        id: `active-segment-casing-${sIdx}`,
+                        type: 'line',
+                        source: segSourceId,
+                        paint: { 'line-color': '#121212', 'line-width': 7.5, 'line-opacity': 0.85 }
+                    });
+                }
+
+                const isManual = seg.profile === "manual-straight";
+
+                if (!map.getLayer(`active-segment-solid-${sIdx}`)) {
+                    map.addLayer({
+                        id: `active-segment-solid-${sIdx}`,
+                        type: 'line',
+                        source: segSourceId,
+                        paint: { 
+                            'line-color': seg.color || '#00e5ff', 
+                            'line-width': 4.5,
+                            ...(isManual ? { 'line-dasharray': [2, 2] } : {})
+                        }
+                    });
+                }
             });
         }
 
-        if (!map.getLayer('active-route-solid')) {
+        // 3. FLECHAS DE DIRECCIÓN PARA LA RUTA ACTIVA
+        const fullGeojson = { type: 'Feature', geometry: { type: 'LineString', coordinates: activeRoute.coordinates } };
+        if (!map.getSource('planned-route-arrows-source')) {
+            map.addSource('planned-route-arrows-source', { type: 'geojson', data: fullGeojson });
+        } else {
+            map.getSource('planned-route-arrows-source').setData(fullGeojson);
+        }
+
+        if (!map.getLayer('planned-route-arrows')) {
             map.addLayer({
-                id: 'active-route-solid',
-                type: 'line',
-                source: activeSourceId,
-                paint: { 'line-color': '#00e5ff', 'line-width': 4.5 }
+                id: `planned-route-arrows`,
+                type: 'symbol',
+                source: 'planned-route-arrows-source',
+                layout: {
+                    'symbol-placement': 'line',
+                    'symbol-spacing': 70,
+                    'icon-image': 'route-svg-arrow',
+                    'icon-size': 0.05,
+                    'icon-allow-overlap': true,
+                    'icon-rotation-alignment': 'map'
+                }
             });
         }
     },
@@ -1133,14 +1281,19 @@ const RoutePlanner = {
     clearRoute() {
         if (!map) return;
         try {
-            if (map.getLayer('active-route-solid')) map.removeLayer('active-route-solid');
-            if (map.getLayer('active-route-casing')) map.removeLayer('active-route-casing');
-            if (map.getSource('active-route-source')) map.removeSource('active-route-source');
+            if (map.getLayer('planned-route-arrows')) map.removeLayer('planned-route-arrows');
+            if (map.getSource('planned-route-arrows-source')) map.removeSource('planned-route-arrows-source');
 
             for (let i = 0; i < 10; i++) {
                 if (map.getLayer(`inactive-alt-line-${i}`)) map.removeLayer(`inactive-alt-line-${i}`);
                 if (map.getLayer(`inactive-alt-casing-${i}`)) map.removeLayer(`inactive-alt-casing-${i}`);
                 if (map.getSource(`inactive-alt-source-${i}`)) map.removeSource(`inactive-alt-source-${i}`);
+            }
+
+            for (let i = 0; i < 20; i++) {
+                if (map.getLayer(`active-segment-solid-${i}`)) map.removeLayer(`active-segment-solid-${i}`);
+                if (map.getLayer(`active-segment-casing-${i}`)) map.removeLayer(`active-segment-casing-${i}`);
+                if (map.getSource(`active-segment-source-${i}`)) map.removeSource(`active-segment-source-${i}`);
             }
         } catch (e) {}
     },
