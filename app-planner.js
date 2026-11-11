@@ -4,6 +4,7 @@
 
 const savedStyle = localStorage.getItem('otromundo_style') || 'styles/otromundo.json';
 
+// Inicialización global garantizada de MapLibre
 const map = new maplibregl.Map({
     container: 'map',
     style: savedStyle,
@@ -11,6 +12,7 @@ const map = new maplibregl.Map({
     zoom: 12,
     attributionControl: false
 });
+window.map = map;
 
 const geolocateControl = new maplibregl.GeolocateControl({
     positionOptions: { enableHighAccuracy: true },
@@ -22,7 +24,7 @@ map.addControl(geolocateControl);
 const RoutePlanner = {
     profile: "hiking-mountain",
     maxAlternatives: 0,
-    applyOnlyToFuture: false, // Control para aplicar el nuevo perfil solo a los siguientes puntos
+    applyOnlyToFuture: false,
     points: [],
     markers: [],
     routesList: [],
@@ -30,30 +32,44 @@ const RoutePlanner = {
     currentRouteData: null,
     isGraphOpen: false,
     isLeftHanded: false,
-    isTouchAddEnabled: false, // Estado inicial: Bloqueado por defecto para evitar puntos fantasma
-    activeTab: 'points',    // 'points' o 'segments'
-    segments: [],           // Almacena [{ name: "Tramo 1", color: "#00e5ff", profile: "..." }, ...]
-    isDraggingMarker: false, // Bandera para evitar clics fantasma al soltar un marcador arrastrado
-    _cursorMarker: null,     // Marcador HTML flotante para la distancia al centro
-    _segmentMarkers: [],     // Marcadores HTML flotantes para las medidas de cada tramo
-    _minMaxMarkers: [],      // Marcadores HTML flotantes para cota máxima y mínima
+    isTouchAddEnabled: false,
+    activeTab: 'points',
+    segments: [],
+    isDraggingMarker: false,
+    _cursorMarker: null,
+    _segmentMarkers: [],
+    _minMaxMarkers: [],
+    circularManager: null,
 
     init() {
-        this.syncSavedMapUI();             // Sincroniza el mapa guardado con el selector de la UI
+        this.syncSavedMapUI();
         this.setupEvents();
         this.activateMapInteractions();
-        this.setupGuideModalEvents();       // Inicializa los eventos del Manual Rápido
-        this.setupAttributionsModalEvents(); // Inicializa los eventos del Modal de Atribuciones
-        this.updateDefaultProfileStatus();  // Establece el perfil inicial en el banner superior
+        this.setupGuideModalEvents();
+        this.setupAttributionsModalEvents();
+        this.updateDefaultProfileStatus();
+        this.setupAndroidBackButton();
         
+        this.circularManager = new CircularRouteManager(this);
+
         setTimeout(() => {
-            if (map) map.resize();
+            if (map && typeof map.resize === 'function') map.resize();
         }, 150);
 
-        if (map) {
+        if (map && typeof map.on === 'function') {
+            map.on('tileerror', (e) => {
+                console.warn("Advertencia de tesela externa (tolerada):", e.url || "red");
+            });
+
+            map.on('error', (e) => {
+                if (e && e.error && e.error.message && e.error.message.includes('tile')) {
+                    console.warn("Advertencia: Fallo al cargar tesela externa en el mapa base:", e.error.message);
+                }
+            });
+
             map.on('style.load', () => {
                 setTimeout(() => {
-                    if (map.hasImage('route-svg-arrow')) {
+                    if (map.hasImage && map.hasImage('route-svg-arrow')) {
                         map.removeImage('route-svg-arrow');
                     }
                     if (this.routesList.length > 0) {
@@ -75,7 +91,6 @@ const RoutePlanner = {
     },
 
     syncSavedMapUI() {
-        // Marca el radio button correspondiente al estilo guardado en localStorage
         const currentSavedStyle = localStorage.getItem('otromundo_style') || 'styles/otromundo.json';
         const radioToSelect = document.querySelector(`input[name="basemap"][value="${currentSavedStyle}"]`);
         if (radioToSelect) {
@@ -84,7 +99,6 @@ const RoutePlanner = {
     },
 
     setupEvents() {
-        // 1. Selector de Mapas
         const btnMap = document.getElementById("planner-btn-map");
         const mapsDrawer = document.getElementById("side-panel-maps");
         const closeMaps = document.getElementById("btn-close-maps-drawer");
@@ -94,13 +108,26 @@ const RoutePlanner = {
 
         document.querySelectorAll('input[name="basemap"]').forEach(radio => {
             radio.addEventListener("change", (e) => {
-                map.setStyle(e.target.value);
-                localStorage.setItem('otromundo_style', e.target.value);
+                const targetStyle = e.target.value;
+                this.clearRoute();
+                localStorage.setItem('otromundo_style', targetStyle);
+
+                fetch(targetStyle)
+                    .then(res => res.json())
+                    .then(styleJSON => {
+                        if (map) {
+                            map.setStyle(styleJSON, { diff: false });
+                        }
+                    })
+                    .catch(err => {
+                        console.error("Error al cargar el estilo JSON:", err);
+                        if (map) map.setStyle(targetStyle, { diff: false });
+                    });
+
                 mapsDrawer?.classList.remove("active");
             });
         });
 
-        // 2. Selector de Perfiles BRouter
         const btnProfiles = document.getElementById("planner-btn-profiles");
         const profilesDrawer = document.getElementById("side-panel-profiles");
         const closeProfiles = document.getElementById("btn-close-profiles-drawer");
@@ -129,13 +156,19 @@ const RoutePlanner = {
             });
         });
 
-        // Evento para el interruptor de "Aplicar solo a nuevos puntos"
         const optFuture = document.getElementById("opt-btn-apply-future");
         const toggleFuture = document.getElementById("toggle-apply-future-mode");
         optFuture?.addEventListener("click", () => {
             this.applyOnlyToFuture = !this.applyOnlyToFuture;
             if (toggleFuture) toggleFuture.checked = this.applyOnlyToFuture;
             this.showToast(this.applyOnlyToFuture ? "Perfil futuro activado" : "Perfil global activado");
+        });
+
+        const circularCard = document.getElementById('planner-circular-route-card');
+        circularCard?.addEventListener('click', () => {
+            if (this.circularManager) {
+                this.circularManager.startSelection();
+            }
         });
 
         document.querySelectorAll('input[name="brouter-alternatives"]').forEach(radio => {
@@ -145,7 +178,6 @@ const RoutePlanner = {
             });
         });
 
-        // 3. Menú de Opciones
         const btnOptions = document.getElementById("planner-btn-options");
         const optionsDrawer = document.getElementById("side-panel-planner-options");
         const closeOptions = document.getElementById("btn-close-planner-options-drawer");
@@ -153,7 +185,6 @@ const RoutePlanner = {
         btnOptions?.addEventListener("click", () => optionsDrawer?.classList.add("active"));
         closeOptions?.addEventListener("click", () => optionsDrawer?.classList.remove("active"));
 
-        // 4. Listado de Puntos y Segmentos
         const btnList = document.getElementById("btn-planner-list");
         const pointsDrawer = document.getElementById("side-panel-points-list");
         const closePoints = document.getElementById("btn-close-points-drawer");
@@ -185,7 +216,6 @@ const RoutePlanner = {
             this.renderSegmentsListDrawer();
         });
 
-        // Modo Zurdos Toggle
         const optLefty = document.getElementById("opt-btn-lefty");
         const toggleLefty = document.getElementById("toggle-lefty-mode");
         optLefty?.addEventListener("click", () => {
@@ -197,11 +227,19 @@ const RoutePlanner = {
         const btnAltSwitcher = document.getElementById("planner-alt-switcher");
         btnAltSwitcher?.addEventListener("click", () => this.cycleAlternativeRoute());
 
-        // 5. Botones de Acción (Botón de añadir limpio, exclusivamente de clic simple)
         const btnAdd = document.getElementById("planner-btn-add");
-        btnAdd?.addEventListener("click", () => {
-            const center = map.getCenter();
-            this.addPoint([center.lng, center.lat], "Destino");
+        btnAdd?.addEventListener("click", (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+
+            if (map) {
+                const center = map.getCenter();
+                if (this.circularManager && this.circularManager.isSelectingStart) {
+                    this.circularManager.handleMapClick(center);
+                } else {
+                    this.addPoint([center.lng, center.lat], "Punto Central");
+                }
+            }
         });
 
         document.getElementById("planner-btn-remove")?.addEventListener("click", () => {
@@ -210,14 +248,13 @@ const RoutePlanner = {
 
         document.getElementById("planner-btn-clear")?.addEventListener("click", () => this.clearAllPoints());
         document.getElementById("planner-btn-cancel")?.addEventListener("click", () => this.clearAllPoints());
-        document.getElementById("planner-btn-gps")?.addEventListener("click", () => geolocateControl.trigger());
+        document.getElementById("planner-btn-gps")?.addEventListener("click", () => geolocateControl?.trigger());
 
         document.getElementById("btn-planner-graph")?.addEventListener("click", () => this.toggleGraph());
 
-        document.getElementById("btn-planner-zoomin")?.addEventListener("click", () => map.zoomIn());
-        document.getElementById("btn-planner-zoomout")?.addEventListener("click", () => map.zoomOut());
+        document.getElementById("btn-planner-zoomin")?.addEventListener("click", () => map?.zoomIn());
+        document.getElementById("btn-planner-zoomout")?.addEventListener("click", () => map?.zoomOut());
 
-        // 6. Botón de Bloqueo / Desbloqueo Táctil
         const btnTouchLock = document.getElementById("planner-btn-touch-lock");
         const lockIcon = document.getElementById("planner-lock-icon");
 
@@ -280,6 +317,39 @@ const RoutePlanner = {
         });
     },
 
+    setupAndroidBackButton() {
+        let lastBackPressTime = 0;
+        const BACK_PRESS_INTERVAL = 2000;
+
+        window.history.pushState({ page: 'planner' }, '', window.location.href);
+
+        window.addEventListener('popstate', () => {
+            const now = Date.now();
+            const openDrawer = document.querySelector('.side-drawer.active');
+            const openModal = document.querySelector('div[style*="z-index: 30000"][style*="display: flex"], div[style*="z-index: 10000"][style*="display: flex"]');
+
+            if (openDrawer) {
+                openDrawer.classList.remove('active');
+                window.history.pushState({ page: 'planner' }, '', window.location.href);
+                return;
+            }
+
+            if (openModal) {
+                openModal.style.display = 'none';
+                window.history.pushState({ page: 'planner' }, '', window.location.href);
+                return;
+            }
+
+            if (now - lastBackPressTime < BACK_PRESS_INTERVAL) {
+                window.history.back();
+            } else {
+                lastBackPressTime = now;
+                this.showToast("Pulsa otra vez para salir de la aplicación");
+                window.history.pushState({ page: 'planner' }, '', window.location.href);
+            }
+        });
+    },
+
     loadGuideContent() {
         const contentContainer = document.getElementById("guide-modal-content");
         const titleEl = document.getElementById("guide-modal-title");
@@ -288,14 +358,9 @@ const RoutePlanner = {
         if (contentContainer.dataset.loaded === "true") return;
 
         const data = window.PLANNER_GUIDE_DATA;
-        if (!data) {
-            contentContainer.innerHTML = `<div style="text-align: center; color: #ff5252; padding: 20px;">No se encontró la guía de uso.</div>`;
-            return;
-        }
+        if (!data) return;
 
-        if (titleEl && data.title) {
-            titleEl.innerText = data.title;
-        }
+        if (titleEl && data.title) titleEl.innerText = data.title;
 
         contentContainer.innerHTML = "";
         data.sections.forEach(sec => {
@@ -309,7 +374,7 @@ const RoutePlanner = {
                     display: flex; align-items: center; gap: 8px;
                 `;
                 item.innerHTML = `
-                    <img src="${sec.icon}" width="16" height="16" style="filter: brightness(0) saturate(100%) invert(77%) sepia(93%) saturate(1352%) hue-rotate(130deg);" alt="${sec.title}">
+                    <img src="${sec.icon}" width="16" height="16" style="filter: brightness(0) saturate(100%) invert(77%);" alt="${sec.title}">
                     <span>${sec.title}</span>
                 `;
             } else {
@@ -320,7 +385,7 @@ const RoutePlanner = {
                 `;
                 item.innerHTML = `
                     <div style="background: rgba(0,229,255,0.1); border-radius: 8px; padding: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-                        <img src="${sec.icon}" width="20" height="20" style="filter: brightness(0) saturate(100%) invert(77%) sepia(93%) saturate(1352%) hue-rotate(130deg);" alt="${sec.title}">
+                        <img src="${sec.icon}" width="20" height="20" style="filter: brightness(0) saturate(100%) invert(77%);" alt="${sec.title}">
                     </div>
                     <div>
                         <div style="font-weight: bold; color: #00e5ff; margin-bottom: 4px; font-size: 0.9rem;">${sec.title}</div>
@@ -342,14 +407,9 @@ const RoutePlanner = {
         if (contentContainer.dataset.loaded === "true") return;
 
         const data = window.PLANNER_ATTRIBUTIONS_DATA;
-        if (!data) {
-            contentContainer.innerHTML = `<div style="text-align: center; color: #ff5252; padding: 20px;">No se encontraron los datos de atribución.</div>`;
-            return;
-        }
+        if (!data) return;
 
-        if (titleEl && data.title) {
-            titleEl.innerText = data.title;
-        }
+        if (titleEl && data.title) titleEl.innerText = data.title;
 
         contentContainer.innerHTML = "";
         data.sections.forEach(sec => {
@@ -367,7 +427,7 @@ const RoutePlanner = {
 
             item.innerHTML = `
                 <div style="background: rgba(0,229,255,0.1); border-radius: 8px; padding: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-                    <img src="${sec.icon}" width="20" height="20" style="filter: brightness(0) saturate(100%) invert(77%) sepia(93%) saturate(1352%) hue-rotate(130deg);" alt="${sec.title}">
+                    <img src="${sec.icon}" width="20" height="20" style="filter: brightness(0) saturate(100%) invert(77%);" alt="${sec.title}">
                 </div>
                 <div style="flex: 1; min-width: 0;">
                     <div style="font-weight: bold; color: #00e5ff; margin-bottom: 4px; font-size: 0.9rem;">${sec.title}</div>
@@ -382,13 +442,20 @@ const RoutePlanner = {
     },
 
     activateMapInteractions() {
+        if (!map || typeof map.on !== 'function') return;
+
         map.on('click', (e) => {
+            if (this.circularManager && this.circularManager.isSelectingStart) {
+                this.circularManager.handleMapClick(e.lngLat);
+                return;
+            }
+
             if (this.isDraggingMarker) return;
             if (!this.isTouchAddEnabled) return;
 
             const panel = document.getElementById("route-planner-bottom-panel");
             if (!panel || panel.style.display === "none") return;
-            this.addPoint([e.lngLat.lng, e.lngLat.lat], "Destino");
+            this.addPoint([e.lngLat.lng, e.lngLat.lat], "Punto");
         });
 
         map.on('contextmenu', (e) => {
@@ -403,7 +470,6 @@ const RoutePlanner = {
 
         mapContainer.addEventListener('touchstart', (e) => {
             if (!this.isTouchAddEnabled) return;
-
             const panel = document.getElementById("route-planner-bottom-panel");
             if (!panel || panel.style.display === "none" || e.touches.length !== 1) return;
 
@@ -441,7 +507,7 @@ const RoutePlanner = {
 
     insertIntermediatePoint(lngLat) {
         if (this.points.length < 2) {
-            this.addPoint([lngLat.lng, lngLat.lat], "Inicio/Fin");
+            this.addPoint([lngLat.lng, lngLat.lat], "Punto");
             return;
         }
 
@@ -463,7 +529,7 @@ const RoutePlanner = {
 
         this.points.splice(insertIndex, 0, {
             coords: [lngLat.lng, lngLat.lat],
-            name: "Paso"
+            name: `Punto ${insertIndex + 1}`
         });
 
         const inheritedProfile = (this.segments[insertIndex - 1] && this.segments[insertIndex - 1].profile) 
@@ -539,11 +605,11 @@ const RoutePlanner = {
                 this.hideGraph();
                 this.updateAltButtonVisibility();
 
-                if (this._minMaxMarkers && Array.isArray(this._minMaxMarkers)) {
+                if (this._minMaxMarkers) {
                     this._minMaxMarkers.forEach(m => m.remove());
                     this._minMaxMarkers = [];
                 }
-                if (this._segmentMarkers && Array.isArray(this._segmentMarkers)) {
+                if (this._segmentMarkers) {
                     this._segmentMarkers.forEach(m => m.remove());
                     this._segmentMarkers = [];
                 }
@@ -609,182 +675,98 @@ const RoutePlanner = {
         this.syncSegmentsArray();
 
         try {
-            // Verificar si todos los tramos usan el mismo perfil para poder calcular alternativas
             const firstProfile = this.segments[0]?.profile || this.profile;
             const allSameProfile = this.segments.every(s => s.profile === firstProfile);
             const isManual = firstProfile === "manual-straight";
 
-            // Si hay alternativas configuradas (>0) y no hay perfiles mixtos ni manuales
-            if (this.maxAlternatives > 0 && allSameProfile && !isManual) {
-                const lonlatsStr = this.points.map(p => `${p.coords[0]},${p.coords[1]}`).join('|');
-                const altPromises = [];
+            const altCount = (this.maxAlternatives > 0 && allSameProfile && !isManual) ? this.maxAlternatives : 0;
+            const routesVariants = [];
 
-                for (let altIdx = 0; altIdx <= this.maxAlternatives; altIdx++) {
-                    const url = `https://brouter.de/brouter?lonlats=${lonlatsStr}&profile=${firstProfile}&alternativeidx=${altIdx}&format=geojson`;
-                    altPromises.push(
-                        fetch(url)
-                            .then(res => res.json())
-                            .then(data => ({ altIdx, data }))
-                            .catch(err => {
-                                console.warn(`No se pudo obtener la alternativa ${altIdx}:`, err);
-                                return null;
-                            })
-                    );
-                }
+            const lonlatsStr = this.points.map(p => `${p.coords[0]},${p.coords[1]}`).join('|');
 
-                const results = await Promise.all(altPromises);
-                const validRoutes = [];
+            for (let altIdx = 0; altIdx <= altCount; altIdx++) {
+                if (isManual) {
+                    let combinedCoordinates = [];
+                    let totalDistM = 0;
 
-                results.forEach((item) => {
-                    if (!item || !item.data || !item.data.features || item.data.features.length === 0) return;
+                    for (let i = 0; i < this.points.length - 1; i++) {
+                        const p1 = this.points[i].coords;
+                        const p2 = this.points[i + 1].coords;
+                        const distanceMeters = this.haversine(p1[1], p1[0], p2[1], p2[0]);
+                        totalDistM += distanceMeters;
 
-                    const feature = item.data.features[0];
-                    const coords = feature.geometry?.coordinates || [];
-                    if (coords.length < 2) return;
+                        const steps = Math.max(2, Math.floor(distanceMeters / 100));
+                        for (let s = 0; s <= steps; s++) {
+                            const t = s / steps;
+                            const lng = p1[0] + (p2[0] - p1[0]) * t;
+                            const lat = p1[1] + (p2[1] - p1[1]) * t;
+                            const ele1 = p1[2] !== undefined ? p1[2] : 0;
+                            const ele2 = p2[2] !== undefined ? p2[2] : 0;
+                            const ele = ele1 + (ele2 - ele1) * t;
 
-                    const props = feature.properties || {};
-                    let totalDistM = parseFloat(props['track-length'] || props.distance || 0);
-                    let totalSeconds = parseFloat(props['total-time'] || props.time || props.traveltime || 0);
-
-                    let totalAscent = 0;
-                    let totalDescent = 0;
-
-                    for (let j = 0; j < coords.length - 1; j++) {
-                        const c1 = coords[j], c2 = coords[j + 1];
-                        if (totalDistM === 0) {
-                            totalDistM += this.haversine(c1[1], c1[0], c2[1], c2[0]);
+                            if (i > 0 && s === 0) continue;
+                            combinedCoordinates.push([lng, lat, ele]);
                         }
-                        const diff = (c2[2] || 0) - (c1[2] || 0);
-                        if (diff > 0) totalAscent += diff; else totalDescent += Math.abs(diff);
                     }
 
-                    const distKm = (totalDistM / 1000).toFixed(2);
-                    const timeStr = this.formatBRouterTime(totalSeconds, totalDistM, firstProfile);
-
-                    validRoutes.push({
-                        index: validRoutes.length,
-                        coordinates: coords,
-                        distKm,
-                        timeStr,
-                        ascent: Math.round(totalAscent),
-                        descent: Math.round(totalDescent)
+                    const manualSeconds = totalDistM / (5.0 * 1000 / 3600);
+                    routesVariants.push({
+                        index: 0,
+                        coordinates: combinedCoordinates,
+                        distKm: (totalDistM / 1000).toFixed(2),
+                        timeStr: this.formatBRouterTime(manualSeconds, totalDistM, firstProfile),
+                        ascent: 0,
+                        descent: 0
                     });
-                });
-
-                if (validRoutes.length > 0) {
-                    this.routesList = validRoutes;
-                    this.currentRouteIndex = 0;
-                    this.activateRouteVariant(0);
-                    this.updateAltButtonVisibility();
-                    return;
-                }
-            }
-
-            // Lógica por tramos (cuando hay perfiles personalizados por tramo o maxAlternatives === 0)
-            const segmentFetchPromises = [];
-
-            for (let i = 0; i < this.points.length - 1; i++) {
-                const p1 = this.points[i].coords;
-                const p2 = this.points[i + 1].coords;
-                const segProfile = this.segments[i]?.profile || this.profile;
-
-                if (segProfile === "manual-straight") {
-                    const straightCoords = [];
-                    const distanceMeters = this.haversine(p1[1], p1[0], p2[1], p2[0]);
-                    const steps = Math.max(2, Math.floor(distanceMeters / 100));
+                    break;
+                } else {
+                    const url = `https://brouter.de/brouter?lonlats=${lonlatsStr}&profile=${firstProfile}&alternativeidx=${altIdx}&format=geojson`;
                     
-                    for (let s = 0; s <= steps; s++) {
-                        const t = s / steps;
-                        const lng = p1[0] + (p2[0] - p1[0]) * t;
-                        const lat = p1[1] + (p2[1] - p1[1]) * t;
-                        const ele1 = p1[2] !== undefined ? p1[2] : 0;
-                        const ele2 = p2[2] !== undefined ? p2[2] : 0;
-                        const ele = ele1 + (ele2 - ele1) * t;
-                        
-                        straightCoords.push([lng, lat, ele]);
+                    try {
+                        const res = await fetch(url);
+                        const data = await res.json();
+                        const feature = data?.features?.[0];
+                        const coords = feature?.geometry?.coordinates;
+
+                        if (coords && coords.length > 0) {
+                            const props = feature?.properties || {};
+                            const travelTime = parseFloat(props['total-time'] || props.time || props.traveltime || 0);
+                            let totalDistM = 0;
+                            let totalAscent = 0;
+                            let totalDescent = 0;
+
+                            for (let j = 0; j < coords.length - 1; j++) {
+                                const c1 = coords[j], c2 = coords[j + 1];
+                                const dSeg = this.haversine(c1[1], c1[0], c2[1], c2[0]);
+                                totalDistM += dSeg;
+                                const diff = (c2[2] || 0) - (c1[2] || 0);
+                                if (diff > 0) totalAscent += diff; else totalDescent += Math.abs(diff);
+                            }
+
+                            routesVariants.push({
+                                index: routesVariants.length,
+                                coordinates: coords,
+                                distKm: (totalDistM / 1000).toFixed(2),
+                                timeStr: this.formatBRouterTime(travelTime, totalDistM, firstProfile),
+                                ascent: Math.round(totalAscent),
+                                descent: Math.round(totalDescent)
+                            });
+                        }
+                    } catch (err) {
+                        console.warn("Fallo al obtener alternativa BRouter:", err);
                     }
-
-                    const manualSeconds = distanceMeters / (5.0 * 1000 / 3600);
-
-                    segmentFetchPromises.push(
-                        Promise.resolve({
-                            coordinates: straightCoords,
-                            travelTime: manualSeconds,
-                            profile: segProfile
-                        })
-                    );
-                } else {
-                    const url = `https://brouter.de/brouter?lonlats=${p1[0]},${p1[1]}|${p2[0]},${p2[1]}&profile=${segProfile}&alternativeidx=0&format=geojson`;
-                    
-                    segmentFetchPromises.push(
-                        fetch(url)
-                            .then(res => res.json())
-                            .then(data => {
-                                const feature = data?.features?.[0];
-                                const coords = feature?.geometry?.coordinates || [p1, p2];
-                                const props = feature?.properties || {};
-                                const travelTime = parseFloat(props['total-time'] || props.time || props.traveltime || 0);
-                                
-                                return {
-                                    coordinates: coords,
-                                    travelTime: travelTime,
-                                    profile: segProfile
-                                };
-                            })
-                            .catch(() => ({
-                                coordinates: [p1, p2],
-                                travelTime: 0,
-                                profile: segProfile
-                            }))
-                    );
                 }
             }
 
-            const segmentResults = await Promise.all(segmentFetchPromises);
-
-            let combinedCoordinates = [];
-            let totalDistM = 0;
-            let totalAscent = 0;
-            let totalDescent = 0;
-            let totalSeconds = 0;
-
-            segmentResults.forEach((segRes, idx) => {
-                const coords = segRes.coordinates;
-                totalSeconds += (segRes.travelTime || 0);
-
-                if (idx > 0 && combinedCoordinates.length > 0) {
-                    combinedCoordinates.push(...coords.slice(1));
-                } else {
-                    combinedCoordinates.push(...coords);
-                }
-
-                for (let j = 0; j < coords.length - 1; j++) {
-                    const c1 = coords[j], c2 = coords[j + 1];
-                    const dSeg = this.haversine(c1[1], c1[0], c2[1], c2[0]);
-                    totalDistM += dSeg;
-                    const diff = (c2[2] || 0) - (c1[2] || 0);
-                    if (diff > 0) totalAscent += diff; else totalDescent += Math.abs(diff);
-                }
-            });
-
-            const distKm = (totalDistM / 1000).toFixed(2);
-            const timeStr = this.formatBRouterTime(totalSeconds, totalDistM, this.profile);
-
-            this.routesList = [{
-                index: 0,
-                coordinates: combinedCoordinates,
-                distKm,
-                timeStr,
-                ascent: Math.round(totalAscent),
-                descent: Math.round(totalDescent)
-            }];
-
-            this.currentRouteIndex = 0;
-            this.activateRouteVariant(0);
-            this.updateAltButtonVisibility();
+            if (routesVariants.length > 0) {
+                this.routesList = routesVariants;
+                this.currentRouteIndex = Math.min(this.currentRouteIndex, routesVariants.length - 1);
+                this.activateRouteVariant(this.currentRouteIndex);
+                this.updateAltButtonVisibility();
+            }
 
         } catch (e) {
-            console.error("Error al calcular la ruta:", e);
+            console.error("Error general al calcular la ruta:", e);
         }
     },
 
@@ -843,8 +825,10 @@ const RoutePlanner = {
         const sourceId = 'cursor-helper-source';
         const lineLayerId = 'cursor-helper-layer';
 
+        if (!map) return;
+
         if (!this.points || this.points.length === 0) {
-            if (map && map.getSource(sourceId)) {
+            if (map.getSource(sourceId)) {
                 if (map.getLayer(lineLayerId)) map.removeLayer(lineLayerId);
                 map.removeSource(sourceId);
             }
@@ -980,7 +964,7 @@ const RoutePlanner = {
     },
 
     renderMinMaxMarkers() {
-        if (this._minMaxMarkers && Array.isArray(this._minMaxMarkers)) {
+        if (this._minMaxMarkers) {
             this._minMaxMarkers.forEach(m => m.remove());
         }
         this._minMaxMarkers = [];
@@ -1026,8 +1010,8 @@ const RoutePlanner = {
             iconImg.width = 16;
             iconImg.height = 16;
             iconImg.style.filter = item.type === 'max'
-                ? 'brightness(0) saturate(100%) invert(77%) sepia(93%) saturate(1352%) hue-rotate(130deg)'
-                : 'brightness(0) saturate(100%) invert(56%) sepia(85%) saturate(1480%) hue-rotate(338deg)';
+                ? 'brightness(0) saturate(100%) invert(77%)'
+                : 'brightness(0) saturate(100%) invert(56%)';
 
             badge.appendChild(iconImg);
 
@@ -1066,8 +1050,8 @@ const RoutePlanner = {
             
             const img = new Image();
             img.onload = () => {
-                if (!map.hasImage('route-svg-arrow')) {
-                    map.addImage('route-svg-arrow', img);
+                if (map && !map.hasImage('route-svg-arrow')) {
+                    try { map.addImage('route-svg-arrow', img); } catch(e){}
                 }
                 this._executeLayerPainting();
             };
@@ -1082,18 +1066,18 @@ const RoutePlanner = {
 
         this.clearRoute();
 
-        // Colors palette for inactive alternative routes
         const altColors = ['#ff9800', '#ab47bc', '#4caf50'];
 
-        // 1. DIBUJAR RUTAS ALTERNATIVAS INACTIVAS EN SEGUNDO PLANO (TRANSPARENTES)
         this.routesList.forEach((route, idx) => {
-            if (idx === this.currentRouteIndex) return; // Se dibuja después como activa
+            if (idx === this.currentRouteIndex) return;
 
             const altSourceId = `inactive-alt-source-${idx}`;
             const geojson = { type: 'Feature', geometry: { type: 'LineString', coordinates: route.coordinates } };
 
             if (!map.getSource(altSourceId)) {
                 map.addSource(altSourceId, { type: 'geojson', data: geojson });
+            } else {
+                map.getSource(altSourceId).setData(geojson);
             }
 
             const altColor = altColors[(idx - 1) % altColors.length] || '#ff9800';
@@ -1117,96 +1101,31 @@ const RoutePlanner = {
             }
         });
 
-        // 2. DIBUJAR LA RUTA ACTIVA DESTACADA POR SEGMENTOS / BGLOBAL
         const activeRoute = this.routesList[this.currentRouteIndex];
-        this.syncSegmentsArray();
+        const activeSourceId = 'active-route-source';
+        const geojsonActive = { type: 'Feature', geometry: { type: 'LineString', coordinates: activeRoute.coordinates } };
 
-        if (this.segments.length > 0 && this.points.length >= 2) {
-            let coordIndex = 0;
+        if (!map.getSource(activeSourceId)) {
+            map.addSource(activeSourceId, { type: 'geojson', data: geojsonActive });
+        } else {
+            map.getSource(activeSourceId).setData(geojsonActive);
+        }
 
-            this.segments.forEach((seg, sIdx) => {
-                const nextPoint = this.points[sIdx + 1];
-                if (!nextPoint) return;
-
-                const subCoords = [];
-                while (coordIndex < activeRoute.coordinates.length) {
-                    const pt = activeRoute.coordinates[coordIndex];
-                    subCoords.push(pt);
-
-                    const distToNext = this.haversine(pt[1], pt[0], nextPoint.coords[1], nextPoint.coords[0]);
-                    coordIndex++;
-
-                    if (distToNext < 40 && sIdx < this.segments.length - 1) {
-                        break;
-                    }
-                }
-
-                if (sIdx === this.segments.length - 1) {
-                    while (coordIndex < activeRoute.coordinates.length) {
-                        subCoords.push(activeRoute.coordinates[coordIndex]);
-                        coordIndex++;
-                    }
-                }
-
-                if (subCoords.length < 2 && activeRoute.coordinates.length >= 2) {
-                    subCoords.push(activeRoute.coordinates[activeRoute.coordinates.length - 1]);
-                }
-
-                const segSourceId = `active-segment-source-${sIdx}`;
-                if (!map.getSource(segSourceId)) {
-                    map.addSource(segSourceId, {
-                        type: 'geojson',
-                        data: { type: 'Feature', geometry: { type: 'LineString', coordinates: subCoords } }
-                    });
-                }
-
-                if (!map.getLayer(`active-segment-casing-${sIdx}`)) {
-                    map.addLayer({
-                        id: `active-segment-casing-${sIdx}`,
-                        type: 'line',
-                        source: segSourceId,
-                        paint: { 'line-color': '#121212', 'line-width': 7.5, 'line-opacity': 0.85 }
-                    });
-                }
-
-                const isManual = seg.profile === "manual-straight";
-
-                if (!map.getLayer(`active-segment-solid-${sIdx}`)) {
-                    map.addLayer({
-                        id: `active-segment-solid-${sIdx}`,
-                        type: 'line',
-                        source: segSourceId,
-                        paint: { 
-                            'line-color': seg.color || '#00e5ff', 
-                            'line-width': 4.5,
-                            ...(isManual ? { 'line-dasharray': [2, 2] } : {})
-                        }
-                    });
-                }
+        if (!map.getLayer('active-route-casing')) {
+            map.addLayer({
+                id: 'active-route-casing',
+                type: 'line',
+                source: activeSourceId,
+                paint: { 'line-color': '#121212', 'line-width': 7.5, 'line-opacity': 0.85 }
             });
         }
 
-        // 3. FLECHAS DE DIRECCIÓN PARA LA RUTA ACTIVA
-        const fullGeojson = { type: 'Feature', geometry: { type: 'LineString', coordinates: activeRoute.coordinates } };
-        if (!map.getSource('planned-route-arrows-source')) {
-            map.addSource('planned-route-arrows-source', { type: 'geojson', data: fullGeojson });
-        } else {
-            map.getSource('planned-route-arrows-source').setData(fullGeojson);
-        }
-
-        if (!map.getLayer('planned-route-arrows')) {
+        if (!map.getLayer('active-route-solid')) {
             map.addLayer({
-                id: 'planned-route-arrows',
-                type: 'symbol',
-                source: 'planned-route-arrows-source',
-                layout: {
-                    'symbol-placement': 'line',
-                    'symbol-spacing': 70,
-                    'icon-image': 'route-svg-arrow',
-                    'icon-size': 0.05,
-                    'icon-allow-overlap': true,
-                    'icon-rotation-alignment': 'map'
-                }
+                id: 'active-route-solid',
+                type: 'line',
+                source: activeSourceId,
+                paint: { 'line-color': '#00e5ff', 'line-width': 4.5 }
             });
         }
     },
@@ -1214,19 +1133,14 @@ const RoutePlanner = {
     clearRoute() {
         if (!map) return;
         try {
-            if (map.getLayer('planned-route-arrows')) map.removeLayer('planned-route-arrows');
-            if (map.getSource('planned-route-arrows-source')) map.removeSource('planned-route-arrows-source');
+            if (map.getLayer('active-route-solid')) map.removeLayer('active-route-solid');
+            if (map.getLayer('active-route-casing')) map.removeLayer('active-route-casing');
+            if (map.getSource('active-route-source')) map.removeSource('active-route-source');
 
             for (let i = 0; i < 10; i++) {
                 if (map.getLayer(`inactive-alt-line-${i}`)) map.removeLayer(`inactive-alt-line-${i}`);
                 if (map.getLayer(`inactive-alt-casing-${i}`)) map.removeLayer(`inactive-alt-casing-${i}`);
                 if (map.getSource(`inactive-alt-source-${i}`)) map.removeSource(`inactive-alt-source-${i}`);
-            }
-
-            for (let i = 0; i < 20; i++) {
-                if (map.getLayer(`active-segment-solid-${i}`)) map.removeLayer(`active-segment-solid-${i}`);
-                if (map.getLayer(`active-segment-casing-${i}`)) map.removeLayer(`active-segment-casing-${i}`);
-                if (map.getSource(`active-segment-source-${i}`)) map.removeSource(`active-segment-source-${i}`);
             }
         } catch (e) {}
     },
@@ -1255,11 +1169,11 @@ const RoutePlanner = {
             this._cursorMarker.remove();
             this._cursorMarker = null;
         }
-        if (this._segmentMarkers && Array.isArray(this._segmentMarkers)) {
+        if (this._segmentMarkers) {
             this._segmentMarkers.forEach(m => m.remove());
             this._segmentMarkers = [];
         }
-        if (this._minMaxMarkers && Array.isArray(this._minMaxMarkers)) {
+        if (this._minMaxMarkers) {
             this._minMaxMarkers.forEach(m => m.remove());
             this._minMaxMarkers = [];
         }
