@@ -1,18 +1,18 @@
 // ==========================================
 // APLICACIÓN UNIFICADA: PLANIFICADOR + GRÁFICA + LISTA LATERAL + MAPAS + PERFILES + ZURDOS + REORDENAMIENTO + DESTINOS Y PUNTOS DE PASO + GUÍA RÁPIDA + ATRIBUCIONES
 // ==========================================
-
 const savedStyle = localStorage.getItem('otromundo_style') || 'styles/otromundo.json';
-
-// Inicialización global garantizada de MapLibre
+const savedCenter = JSON.parse(localStorage.getItem('otromundo_last_center') || '[-5.9304, 37.3414]');
+const savedZoom = parseFloat(localStorage.getItem('otromundo_last_zoom') || '12');
 const map = new maplibregl.Map({
-    container: 'map',
-    style: savedStyle,
-    center: [-5.9304, 37.3414], // Montequinto / Sevilla
-    zoom: 12,
-    attributionControl: false
+container: 'map',
+style: savedStyle,
+center: savedCenter,
+zoom: savedZoom,
+attributionControl: false
 });
 window.map = map;
+
 
 const geolocateControl = new maplibregl.GeolocateControl({
     positionOptions: { enableHighAccuracy: true },
@@ -84,9 +84,13 @@ const RoutePlanner = {
             map.on('move', () => {
                 this.updateDynamicCursorLine();
             });
-            map.on('moveend', () => {
+                       map.on('moveend', () => {
                 this.updateDynamicCursorLine();
+                const center = map.getCenter();
+                localStorage.setItem('otromundo_last_center', JSON.stringify([center.lng, center.lat]));
+                localStorage.setItem('otromundo_last_zoom', map.getZoom());
             });
+
         }
     },
 
