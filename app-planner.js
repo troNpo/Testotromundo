@@ -2,7 +2,7 @@
 // APLICACIÓN UNIFICADA: PLANIFICADOR + GRÁFICA + LISTA LATERAL + MAPAS + PERFILES + ZURDOS + REORDENAMIENTO + DESTINOS Y PUNTOS DE PASO + GUÍA RÁPIDA + ATRIBUCIONES
 // ==========================================
 
-const savedStyle = localStorage.getItem('otromundo_style') || 'styles/otromundo.json';
+const savedStyle = localStorage.getItem('otromundo_style') || 'styles/osm.json';
 
 // Inicialización global garantizada de MapLibre
 const map = new maplibregl.Map({
@@ -91,7 +91,7 @@ const RoutePlanner = {
     },
 
     syncSavedMapUI() {
-        const currentSavedStyle = localStorage.getItem('otromundo_style') || 'styles/otromundo.json';
+        const currentSavedStyle = localStorage.getItem('otromundo_style') || 'styles/osm.json';
         const radioToSelect = document.querySelector(`input[name="basemap"][value="${currentSavedStyle}"]`);
         if (radioToSelect) {
             radioToSelect.checked = true;
@@ -805,7 +805,7 @@ const RoutePlanner = {
                 }
             }
 
-            const segmentResults = await Promise.all(segmentFetchPromises);
+                       const segmentResults = await Promise.all(segmentFetchPromises);
 
             let combinedCoordinates = [];
             let totalDistM = 0;
@@ -816,6 +816,11 @@ const RoutePlanner = {
             segmentResults.forEach((segRes, idx) => {
                 const coords = segRes.coordinates;
                 totalSeconds += (segRes.travelTime || 0);
+
+                // Guardamos las coordenadas exactas en cada segmento para no depender de cálculos de proximidad al pintar
+                if (this.segments[idx]) {
+                    this.segments[idx].coordinates = coords;
+                }
 
                 if (idx > 0 && combinedCoordinates.length > 0) {
                     combinedCoordinates.push(...coords.slice(1));
@@ -831,6 +836,7 @@ const RoutePlanner = {
                     if (diff > 0) totalAscent += diff; else totalDescent += Math.abs(diff);
                 }
             });
+
 
             const distKm = (totalDistM / 1000).toFixed(2);
             const timeStr = this.formatBRouterTime(totalSeconds, totalDistM, this.profile);
@@ -1188,36 +1194,18 @@ const RoutePlanner = {
         const activeRoute = this.routesList[this.currentRouteIndex];
         this.syncSegmentsArray();
 
-        if (this.segments.length > 0 && this.points.length >= 2) {
-            let coordIndex = 0;
-
+               if (this.segments.length > 0 && this.points.length >= 2) {
             this.segments.forEach((seg, sIdx) => {
-                const nextPoint = this.points[sIdx + 1];
-                if (!nextPoint) return;
+                const pStart = this.points[sIdx]?.coords;
+                const pEnd = this.points[sIdx + 1]?.coords;
+                if (!pStart || !pEnd) return;
 
-                const subCoords = [];
-                while (coordIndex < activeRoute.coordinates.length) {
-                    const pt = activeRoute.coordinates[coordIndex];
-                    subCoords.push(pt);
-
-                    const distToNext = this.haversine(pt[1], pt[0], nextPoint.coords[1], nextPoint.coords[0]);
-                    coordIndex++;
-
-                    if (distToNext < 40 && sIdx < this.segments.length - 1) {
-                        break;
-                    }
-                }
-
-                if (sIdx === this.segments.length - 1) {
-                    while (coordIndex < activeRoute.coordinates.length) {
-                        subCoords.push(activeRoute.coordinates[coordIndex]);
-                        coordIndex++;
-                    }
-                }
-
-                if (subCoords.length < 2 && activeRoute.coordinates.length >= 2) {
-                    subCoords.push(activeRoute.coordinates[activeRoute.coordinates.length - 1]);
-                }
+                const isManual = seg.profile === "manual-straight";
+                
+                // Si es manual-straight usa estrictamente los puntos marcados; si es BRouter usa sus propias coordenadas guardadas
+                const subCoords = isManual 
+                    ? [pStart, pEnd] 
+                    : (seg.coordinates && seg.coordinates.length >= 2 ? seg.coordinates : [pStart, pEnd]);
 
                 const segSourceId = `active-segment-source-${sIdx}`;
                 if (!map.getSource(segSourceId)) {
@@ -1227,7 +1215,8 @@ const RoutePlanner = {
                     });
                 }
 
-                if (!map.getLayer(`active-segment-casing-${sIdx}`)) {
+                // Solo dibujamos borde continuo oscuro si NO es manual, para que los huecos de la línea discontinua sean transparentes
+                if (!isManual && !map.getLayer(`active-segment-casing-${sIdx}`)) {
                     map.addLayer({
                         id: `active-segment-casing-${sIdx}`,
                         type: 'line',
@@ -1236,8 +1225,6 @@ const RoutePlanner = {
                     });
                 }
 
-                const isManual = seg.profile === "manual-straight";
-
                 if (!map.getLayer(`active-segment-solid-${sIdx}`)) {
                     map.addLayer({
                         id: `active-segment-solid-${sIdx}`,
@@ -1245,8 +1232,8 @@ const RoutePlanner = {
                         source: segSourceId,
                         paint: { 
                             'line-color': seg.color || '#00e5ff', 
-                            'line-width': 4.5,
-                            ...(isManual ? { 'line-dasharray': [2, 2] } : {})
+                            'line-width': isManual ? 4 : 4.5,
+                            ...(isManual ? { 'line-dasharray': [3, 3] } : {})
                         }
                     });
                 }
