@@ -2,7 +2,7 @@
 // APLICACIÓN UNIFICADA: PLANIFICADOR + GRÁFICA + LISTA LATERAL + MAPAS + PERFILES + ZURDOS + REORDENAMIENTO + DESTINOS Y PUNTOS DE PASO + GUÍA RÁPIDA + ATRIBUCIONES
 // ==========================================
 
-const savedStyle = localStorage.getItem('otromundo_style') || 'styles/osm.json';
+const savedStyle = localStorage.getItem('otromundo_style') || 'styles/otromundo.json';
 
 // Inicialización global garantizada de MapLibre
 const map = new maplibregl.Map({
@@ -91,7 +91,7 @@ const RoutePlanner = {
     },
 
     syncSavedMapUI() {
-        const currentSavedStyle = localStorage.getItem('otromundo_style') || 'styles/osm.json';
+        const currentSavedStyle = localStorage.getItem('otromundo_style') || 'styles/otromundo.json';
         const radioToSelect = document.querySelector(`input[name="basemap"][value="${currentSavedStyle}"]`);
         if (radioToSelect) {
             radioToSelect.checked = true;
