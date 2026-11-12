@@ -321,29 +321,15 @@ const RoutePlanner = {
         });
     },
 
-    setupAndroidBackButton() {
+       setupAndroidBackButton() {
         let lastBackPressTime = 0;
         const BACK_PRESS_INTERVAL = 2000;
-
+        
         window.history.pushState({ page: 'planner' }, '', window.location.href);
-
+        
         window.addEventListener('popstate', () => {
             const now = Date.now();
-            const openDrawer = document.querySelector('.side-drawer.active');
-            const openModal = document.querySelector('div[style*="z-index: 30000"][style*="display: flex"], div[style*="z-index: 10000"][style*="display: flex"]');
-
-            if (openDrawer) {
-                openDrawer.classList.remove('active');
-                window.history.pushState({ page: 'planner' }, '', window.location.href);
-                return;
-            }
-
-            if (openModal) {
-                openModal.style.display = 'none';
-                window.history.pushState({ page: 'planner' }, '', window.location.href);
-                return;
-            }
-
+            
             if (now - lastBackPressTime < BACK_PRESS_INTERVAL) {
                 window.history.back();
             } else {
