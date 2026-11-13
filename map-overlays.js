@@ -23,39 +23,20 @@ const MapOverlays = {
             defaultOpacity: 0.8
         }
     },
-    
+
     activeLayers: new Set(),
-    
+
     init() {
         this.setupEvents();
-        this.initWhenMapReady();
+        this.setupStyleReloadListener();
         this.bindBasemapChangeEvents();
     },
-    
-    getMap() {
-        if (typeof window.map !== 'undefined' && window.map) return window.map;
-        if (typeof window.RoutePlanner !== 'undefined' && window.RoutePlanner && window.RoutePlanner.map) {
-            return window.RoutePlanner.map;
-        }
-        return null;
-    },
-    
-    initWhenMapReady() {
-        const mapObj = this.getMap();
-        
-        if (mapObj && typeof mapObj.on === 'function') {
-            this.setupStyleReloadListener(mapObj);
-        } else {
-            // Reintentar de forma segura hasta que app-planner.js cree la instancia de MapLibre
-            setTimeout(() => this.initWhenMapReady(), 100);
-        }
-    },
-    
+
     setupEvents() {
         const bindLayerEvents = (key) => {
             const chk = document.getElementById(`toggle-layer-${key}`);
             const range = document.getElementById(`range-opacity-${key}`);
-            
+
             chk?.addEventListener('change', (e) => {
                 if (e.target.checked) {
                     this.activeLayers.add(key);
@@ -65,71 +46,74 @@ const MapOverlays = {
                     this.removeLayer(key);
                 }
             });
-            
+
             range?.addEventListener('input', (e) => {
                 this.setOpacity(key, parseFloat(e.target.value));
             });
         };
-        
+
         ['hiking', 'cycling', 'mtb'].forEach(bindLayerEvents);
     },
-    
+
     bindBasemapChangeEvents() {
         const basemapInputs = document.querySelectorAll('input[name="basemap"]');
         basemapInputs.forEach(input => {
             input.addEventListener('change', () => {
+                // Al cambiar de mapa base mediante radio buttons, agendamos la restauración
                 setTimeout(() => this.restoreActiveLayers(), 400);
             });
         });
     },
-    
-    setupStyleReloadListener(mapObj) {
-        if (!mapObj || typeof mapObj.on !== 'function') return;
-        
-        mapObj.on('idle', () => {
+
+    setupStyleReloadListener() {
+        if (typeof map === 'undefined') return;
+
+        // Escuchamos cuando MapLibre termina de renderizar el nuevo estilo por completo
+        map.on('idle', () => {
             this._isMapIdle = true;
         });
-        
-        mapObj.on('style.load', () => {
+
+        map.on('style.load', () => {
             this._isMapIdle = false;
+            // Esperamos un margen generoso para que OpenTopoMap u otros mapas complejos terminen de reconstruirse
             setTimeout(() => {
                 this.restoreActiveLayers();
             }, 500);
         });
     },
-    
+
     restoreActiveLayers() {
-        const mapObj = this.getMap();
-        if (!mapObj) return;
-        
+        if (typeof map === 'undefined') return;
+
         this.activeLayers.forEach(key => {
+            // Verificamos si la fuente ya existe en el nuevo estilo; si no, la recreamos con seguridad
             const config = this.layersConfig[key];
-            if (config && typeof mapObj.getSource === 'function' && !mapObj.getSource(config.sourceId)) {
+            if (config && !map.getSource(config.sourceId)) {
                 this.addLayer(key);
             }
         });
     },
-    
+
     addLayer(key) {
         const config = this.layersConfig[key];
-        const mapObj = this.getMap();
-        if (!config || !mapObj) return;
-        
+        if (!config || typeof map === 'undefined') return;
+
         try {
-            if (typeof mapObj.getLayer === 'function' && mapObj.getLayer(config.id)) mapObj.removeLayer(config.id);
-            if (typeof mapObj.getSource === 'function' && mapObj.getSource(config.sourceId)) mapObj.removeSource(config.sourceId);
-            
-            mapObj.addSource(config.sourceId, {
+            // Limpieza preventiva por si queda rastro previo
+            if (map.getLayer(config.id)) map.removeLayer(config.id);
+            if (map.getSource(config.sourceId)) map.removeSource(config.sourceId);
+
+            map.addSource(config.sourceId, {
                 type: 'raster',
                 tiles: [config.url],
                 tileSize: 256,
                 attribution: '&copy; <a href="https://waymarkedtrails.org">Waymarked Trails</a>'
             });
-            
+
             const rangeInput = document.getElementById(`range-opacity-${key}`);
             const currentOpacity = rangeInput ? parseFloat(rangeInput.value) : config.defaultOpacity;
-            
-            mapObj.addLayer({
+
+            map.addLayer({
                 id: config.id,
                 type: 'raster',
                 source: config.sourceId,
@@ -138,31 +122,29 @@ const MapOverlays = {
                 }
             });
         } catch (err) {
-            // Silencioso ante desincronización puntual de estilos
+            // Evita que un error de sincronización de estilo detenga la app
         }
     },
-    
+
     removeLayer(key) {
         const config = this.layersConfig[key];
-        const mapObj = this.getMap();
-        if (!config || !mapObj) return;
-        
+        if (!config || typeof map === 'undefined') return;
+
         try {
-            if (typeof mapObj.getLayer === 'function' && mapObj.getLayer(config.id)) mapObj.removeLayer(config.id);
-            if (typeof mapObj.getSource === 'function' && mapObj.getSource(config.sourceId)) mapObj.removeSource(config.sourceId);
+            if (map.getLayer(config.id)) map.removeLayer(config.id);
+            if (map.getSource(config.sourceId)) map.removeSource(config.sourceId);
         } catch (err) {
             // Silencioso
         }
     },
-    
+
     setOpacity(key, opacity) {
         const config = this.layersConfig[key];
-        const mapObj = this.getMap();
-        if (!config || !mapObj) return;
-        
+        if (!config || typeof map === 'undefined') return;
+
         try {
-            if (typeof mapObj.getLayer === 'function' && mapObj.getLayer(config.id)) {
-                mapObj.setPaintProperty(config.id, 'raster-opacity', opacity);
+            if (map.getLayer(config.id)) {
+                map.setPaintProperty(config.id, 'raster-opacity', opacity);
             }
         } catch (err) {
             // Silencioso

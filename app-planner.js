@@ -5,14 +5,13 @@ const savedStyle = localStorage.getItem('otromundo_style') || 'styles/otromundo.
 const savedCenter = JSON.parse(localStorage.getItem('otromundo_last_center') || '[-5.9304, 37.3414]');
 const savedZoom = parseFloat(localStorage.getItem('otromundo_last_zoom') || '12');
 const map = new maplibregl.Map({
-container: 'map',
-style: savedStyle,
-center: savedCenter,
-zoom: savedZoom,
-attributionControl: false
+    container: 'map',
+    style: savedStyle,
+    center: savedCenter,
+    zoom: savedZoom,
+    attributionControl: false
 });
 window.map = map;
-
 
 const geolocateControl = new maplibregl.GeolocateControl({
     positionOptions: { enableHighAccuracy: true },
@@ -47,9 +46,11 @@ const RoutePlanner = {
         this.activateMapInteractions();
         this.setupGuideModalEvents();
         this.setupAttributionsModalEvents();
+        this.setupChangelogModalEvents();
+        this.checkAndShowChangelog();
         this.updateDefaultProfileStatus();
         this.setupAndroidBackButton();
-        
+
         this.circularManager = new CircularRouteManager(this);
 
         setTimeout(() => {
@@ -84,13 +85,12 @@ const RoutePlanner = {
             map.on('move', () => {
                 this.updateDynamicCursorLine();
             });
-                       map.on('moveend', () => {
+            map.on('moveend', () => {
                 this.updateDynamicCursorLine();
                 const center = map.getCenter();
                 localStorage.setItem('otromundo_last_center', JSON.stringify([center.lng, center.lat]));
                 localStorage.setItem('otromundo_last_zoom', map.getZoom());
             });
-
         }
     },
 
@@ -321,15 +321,96 @@ const RoutePlanner = {
         });
     },
 
-       setupAndroidBackButton() {
+       setupChangelogModalEvents() {
+            const modal = document.getElementById("planner-changelog-modal");
+            const openBtn = document.getElementById("btn-open-changelog");
+            const closeBtn = document.getElementById("btn-close-changelog-modal");
+            const optionsDrawer = document.getElementById("side-panel-planner-options");
+            
+            openBtn?.addEventListener("click", () => {
+                this.loadChangelogContent();
+                if (modal) modal.style.display = "flex";
+                if (optionsDrawer) optionsDrawer.classList.remove("active");
+            });
+            
+            closeBtn?.addEventListener("click", () => {
+                if (modal) modal.style.display = "none";
+            });
+            
+            modal?.addEventListener("click", (e) => {
+                if (e.target === modal) modal.style.display = "none";
+            });
+        },
+        
+        loadChangelogContent() {
+            const contentContainer = document.getElementById("changelog-modal-content");
+            const titleEl = document.getElementById("changelog-modal-title");
+            if (!contentContainer) return;
+            
+            const data = window.PLANNER_CHANGELOG_DATA;
+            if (!data) return;
+            
+            if (titleEl && data.title) titleEl.innerText = `${data.title} (${data.version})`;
+            
+            contentContainer.innerHTML = "";
+            data.sections.forEach(sec => {
+                const item = document.createElement("div");
+                
+                if (sec.isHeader) {
+                    item.style.cssText = `
+                    font-weight: bold; color: #00e5ff; font-size: 0.95rem; 
+                    margin-top: 14px; margin-bottom: -2px; padding-bottom: 6px;
+                    border-bottom: 1px solid rgba(0,229,255,0.3); font-family: sans-serif;
+                    display: flex; align-items: center; gap: 8px;
+                `;
+                    item.innerHTML = `
+                    <img src="${sec.icon}" width="16" height="16" style="filter: brightness(0) saturate(100%) invert(77%);" alt="${sec.title}">
+                    <span>${sec.title}</span>
+                `;
+                } else {
+                    item.style.cssText = `
+                    display: flex; gap: 14px; align-items: flex-start;
+                    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
+                    border-radius: 10px; padding: 12px;
+                `;
+                    item.innerHTML = `
+                    <div style="background: rgba(0,229,255,0.1); border-radius: 8px; padding: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                        <img src="${sec.icon}" width="20" height="20" style="filter: brightness(0) saturate(100%) invert(77%);" alt="${sec.title}">
+                    </div>
+                    <div>
+                        <div style="font-weight: bold; color: #00e5ff; margin-bottom: 4px; font-size: 0.9rem;">${sec.title}</div>
+                        <div style="color: #ccc; font-size: 0.82rem; line-height: 1.4;">${sec.desc}</div>
+                    </div>
+                `;
+                }
+                contentContainer.appendChild(item);
+            });
+        },
+        
+        checkAndShowChangelog() {
+            const data = window.PLANNER_CHANGELOG_DATA;
+            if (!data) return;
+            
+            const lastSeenVersion = localStorage.getItem('otromundo_last_seen_version');
+            if (lastSeenVersion !== data.version) {
+                this.loadChangelogContent();
+                const modal = document.getElementById("planner-changelog-modal");
+                if (modal) {
+                    modal.style.display = "flex";
+                    localStorage.setItem('otromundo_last_seen_version', data.version);
+                }
+            }
+        },
+
+    setupAndroidBackButton() {
         let lastBackPressTime = 0;
         const BACK_PRESS_INTERVAL = 2000;
-        
+
         window.history.pushState({ page: 'planner' }, '', window.location.href);
-        
+
         window.addEventListener('popstate', () => {
             const now = Date.now();
-            
+
             if (now - lastBackPressTime < BACK_PRESS_INTERVAL) {
                 window.history.back();
             } else {
@@ -669,7 +750,6 @@ const RoutePlanner = {
             const allSameProfile = this.segments.every(s => s.profile === firstProfile);
             const isManual = firstProfile === "manual-straight";
 
-            // Si hay alternativas configuradas (>0) y no hay perfiles mixtos ni manuales
             if (this.maxAlternatives > 0 && allSameProfile && !isManual) {
                 const lonlatsStr = this.points.map(p => `${p.coords[0]},${p.coords[1]}`).join('|');
                 const altPromises = [];
@@ -735,7 +815,6 @@ const RoutePlanner = {
                 }
             }
 
-            // Lógica por tramos (cuando hay perfiles personalizados por tramo o maxAlternatives === 0)
             const segmentFetchPromises = [];
 
             for (let i = 0; i < this.points.length - 1; i++) {
@@ -795,7 +874,7 @@ const RoutePlanner = {
                 }
             }
 
-                       const segmentResults = await Promise.all(segmentFetchPromises);
+            const segmentResults = await Promise.all(segmentFetchPromises);
 
             let combinedCoordinates = [];
             let totalDistM = 0;
@@ -807,7 +886,6 @@ const RoutePlanner = {
                 const coords = segRes.coordinates;
                 totalSeconds += (segRes.travelTime || 0);
 
-                // Guardamos las coordenadas exactas en cada segmento para no depender de cálculos de proximidad al pintar
                 if (this.segments[idx]) {
                     this.segments[idx].coordinates = coords;
                 }
@@ -826,7 +904,6 @@ const RoutePlanner = {
                     if (diff > 0) totalAscent += diff; else totalDescent += Math.abs(diff);
                 }
             });
-
 
             const distKm = (totalDistM / 1000).toFixed(2);
             const timeStr = this.formatBRouterTime(totalSeconds, totalDistM, this.profile);
@@ -1145,12 +1222,10 @@ const RoutePlanner = {
 
         this.clearRoute();
 
-        // Colors palette for inactive alternative routes
         const altColors = ['#ff9800', '#ab47bc', '#4caf50'];
 
-        // 1. DIBUJAR RUTAS ALTERNATIVAS INACTIVAS EN SEGUNDO PLANO (TRANSPARENTES)
         this.routesList.forEach((route, idx) => {
-            if (idx === this.currentRouteIndex) return; // Se dibuja después como activa
+            if (idx === this.currentRouteIndex) return;
 
             const altSourceId = `inactive-alt-source-${idx}`;
             const geojson = { type: 'Feature', geometry: { type: 'LineString', coordinates: route.coordinates } };
@@ -1180,11 +1255,10 @@ const RoutePlanner = {
             }
         });
 
-        // 2. DIBUJAR LA RUTA ACTIVA DESTACADA POR SEGMENTOS / BGLOBAL
         const activeRoute = this.routesList[this.currentRouteIndex];
         this.syncSegmentsArray();
 
-               if (this.segments.length > 0 && this.points.length >= 2) {
+        if (this.segments.length > 0 && this.points.length >= 2) {
             this.segments.forEach((seg, sIdx) => {
                 const pStart = this.points[sIdx]?.coords;
                 const pEnd = this.points[sIdx + 1]?.coords;
@@ -1192,7 +1266,6 @@ const RoutePlanner = {
 
                 const isManual = seg.profile === "manual-straight";
                 
-                // Si es manual-straight usa estrictamente los puntos marcados; si es BRouter usa sus propias coordenadas guardadas
                 const subCoords = isManual 
                     ? [pStart, pEnd] 
                     : (seg.coordinates && seg.coordinates.length >= 2 ? seg.coordinates : [pStart, pEnd]);
@@ -1205,7 +1278,6 @@ const RoutePlanner = {
                     });
                 }
 
-                // Solo dibujamos borde continuo oscuro si NO es manual, para que los huecos de la línea discontinua sean transparentes
                 if (!isManual && !map.getLayer(`active-segment-casing-${sIdx}`)) {
                     map.addLayer({
                         id: `active-segment-casing-${sIdx}`,
@@ -1230,7 +1302,6 @@ const RoutePlanner = {
             });
         }
 
-        // 3. FLECHAS DE DIRECCIÓN PARA LA RUTA ACTIVA
         const fullGeojson = { type: 'Feature', geometry: { type: 'LineString', coordinates: activeRoute.coordinates } };
         if (!map.getSource('planned-route-arrows-source')) {
             map.addSource('planned-route-arrows-source', { type: 'geojson', data: fullGeojson });
