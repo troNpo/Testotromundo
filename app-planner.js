@@ -1450,11 +1450,11 @@ const RoutePlanner = {
         statusTextEl.style.color = "var(--primary-cyan)";
     },
 
-    renderMarkers() {
+        renderMarkers() {
         if (!map) return;
         this.markers.forEach(m => m.remove());
         this.markers = [];
-
+        
         this.points.forEach((point, index) => {
             const el = document.createElement('div');
             el.className = 'planner-numbered-marker';
@@ -1463,33 +1463,35 @@ const RoutePlanner = {
                 border-radius: 50%; width: 30px; height: 30px; display: flex;
                 align-items: center; justify-content: center; font-weight: bold;
                 font-size: 13px; font-family: sans-serif; cursor: grab;
-                position: absolute; transform: translate(-50%, -50%) translateZ(0);
                 will-change: transform; pointer-events: auto;
+                box-shadow: 0 3px 8px rgba(0,0,0,0.65);
             `;
             el.innerText = index + 1;
-
-            const marker = new maplibregl.Marker({ 
-                element: el, 
-                draggable: true,
-                offset: [0, 0]
-            })
+            
+            const marker = new maplibregl.Marker({
+                    element: el,
+                    draggable: true,
+                    anchor: 'center',
+                    pitchAlignment: 'viewport',
+                    rotationAlignment: 'viewport'
+                })
                 .setLngLat(point.coords)
                 .addTo(map);
-
+            
             marker.on('dragstart', () => {
                 this.isDraggingMarker = true;
-                el.style.transform = "translate(-50%, -50%) scale(1.35) translateZ(0)";
+                el.style.borderWidth = "3px";
                 this.showToast(`Moviendo punto ${index + 1}...`);
             });
-
+            
             marker.on('drag', () => {
                 const lngLat = marker.getLngLat();
                 this.points[index].coords = [lngLat.lng, lngLat.lat];
                 this.updateDynamicCursorLine();
             });
-
+            
             marker.on('dragend', () => {
-                el.style.transform = "translate(-50%, -50%) scale(1) translateZ(0)";
+                el.style.borderWidth = "2px";
                 const lngLat = marker.getLngLat();
                 this.points[index].coords = [lngLat.lng, lngLat.lat];
                 
@@ -1506,13 +1508,13 @@ const RoutePlanner = {
                     this.hideGraph();
                     this.updateAltButtonVisibility();
                 }
-
+                
                 this.updateDynamicCursorLine();
                 setTimeout(() => {
                     this.isDraggingMarker = false;
                 }, 300);
             });
-
+            
             this.markers.push(marker);
         });
     },
