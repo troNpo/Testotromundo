@@ -28,23 +28,26 @@ const OruxIntentHandler = {
         // Esperar a que el mapa esté completamente listo
         const waitForMap = setInterval(() => {
             const mapObj = window.map || (window.RoutePlanner && window.RoutePlanner.map);
-            if (mapObj && typeof mapObj.flyTo === 'function') {
+            if (mapObj && typeof mapObj.jumpTo === 'function') {
                 clearInterval(waitForMap);
                 
-                // Volar suavemente evitando que la cámara o los marcadores atraviesen el relieve 3D
-                mapObj.flyTo({
+                // Saltar directamente a la zona para que MapLibre descargue inmediatamente las teselas DEM de esa montaña
+                mapObj.jumpTo({
                     center: [lon, lat],
                     zoom: 15,
-                    pitch: 0, // Evita que la cámara se entierre en laderas empinadas al aterrizar
-                    essential: true
+                    pitch: 0,
+                    bearing: 0
                 });
 
-                // Esperar a que el relieve 3D (DEM) cargue tras el desplazamiento para proyectar bien los marcadores
-                mapObj.once('idle', () => {
+                // Cuando el terreno 3D termine de cargar en esa zona, forzar actualización de proyección
+                const snapToTerrain = () => {
+                    if (typeof mapObj.triggerRepaint === 'function') mapObj.triggerRepaint();
                     if (window.RoutePlanner && typeof window.RoutePlanner.renderMarkers === 'function') {
                         window.RoutePlanner.renderMarkers();
                     }
-                });
+                };
+
+                mapObj.once('idle', snapToTerrain);
 
                 // Mostrar modal de elección para OruxMaps
                 this.showOruxActionModal([lon, lat]);
@@ -54,13 +57,19 @@ const OruxIntentHandler = {
 
     sync3DMarkersAfterAction(mapObj, coords) {
         if (!mapObj) return;
-        // Forzar un pequeño reajuste tras cargar el terreno DEM para que el marcador quede siempre en superficie
         const reproject = () => {
+            // Un micro-ajuste de cámara obliga a MapLibre 5 a consultar queryTerrainElevation() sobre el DEM ya cargado
+            mapObj.jumpTo({
+                center: coords,
+                zoom: mapObj.getZoom(),
+                pitch: mapObj.getPitch(),
+                bearing: mapObj.getBearing()
+            });
             if (window.RoutePlanner && typeof window.RoutePlanner.renderMarkers === 'function') {
                 window.RoutePlanner.renderMarkers();
             }
         };
-        setTimeout(reproject, 300);
+        setTimeout(reproject, 250);
         mapObj.once('idle', reproject);
     },
 
