@@ -1,10 +1,77 @@
 // ==========================================
-// EXPORTER.JS - Gestor Avanzado de Exportación (KML jerárquico y GPX compatible con tramos mixtos)
+// EXPORTER.JS - Gestor Avanzado de Exportación (KML jerárquico, GPX mixto y Apertura Directa orux-track://)
 // ==========================================
 
 const RouteExporter = {
     init() {
+        this.injectOruxOpenButton();
         this.setupEvents();
+    },
+
+    // Detecta si el dispositivo es Android o iOS (incluyendo iPadOS moderno)
+    isMobileOS() {
+        const ua = navigator.userAgent || navigator.vendor || window.opera || "";
+        const isAndroid = /android/i.test(ua);
+        const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        return isAndroid || isIOS;
+    },
+
+    // Inyecta dinámicamente el botón "Abrir en OruxMaps" junto al botón de descarga en Android/iOS
+    injectOruxOpenButton() {
+        if (!this.isMobileOS()) return;
+
+        const btnDownload = document.getElementById("opt-btn-download-file");
+        if (!btnDownload || document.getElementById("opt-btn-open-orux")) return;
+
+        const parent = btnDownload.parentElement;
+        if (!parent) return;
+
+        // Crear contenedor horizontal para poner ambos botones lado a lado
+        const rowWrapper = document.createElement("div");
+        rowWrapper.style.cssText = `
+            display: flex;
+            align-items: stretch;
+            gap: 8px;
+            width: 100%;
+        `;
+
+        parent.insertBefore(rowWrapper, btnDownload);
+
+        // Ajustar botón de descarga original para compartir espacio
+        btnDownload.style.flex = "1";
+        btnDownload.style.minWidth = "0";
+        rowWrapper.appendChild(btnDownload);
+
+        // Crear botón "Abrir en OruxMaps"
+        const btnOrux = document.createElement("button");
+        btnOrux.id = "opt-btn-open-orux";
+        btnOrux.type = "button";
+        btnOrux.title = "Abrir directamente en OruxMaps (orux-track://)";
+        btnOrux.style.cssText = `
+            flex: 1.15;
+            min-width: 0;
+            background: #000000;
+            color: #ff3b30;
+            border: 1.5px solid #ff3b30;
+            border-radius: 10px;
+            padding: 10px 8px;
+            font-weight: bold;
+            font-size: 0.8rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            box-shadow: 0 4px 12px rgba(255, 59, 48, 0.25);
+            transition: transform 0.15s ease, background 0.15s ease;
+        `;
+
+        btnOrux.innerHTML = `
+            <img src="ui-icons/logo_rojo.png" width="18" height="18" style="object-fit: contain; flex-shrink: 0;" alt="OruxMaps">
+            <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Abrir en OruxMaps</span>
+        `;
+
+        rowWrapper.appendChild(btnOrux);
     },
 
     setupEvents() {
@@ -23,7 +90,16 @@ const RouteExporter = {
             btnDownload.addEventListener("click", (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                this.executeExport();
+                this.executeExport(false);
+            });
+        }
+
+        const btnOpenOrux = document.getElementById("opt-btn-open-orux");
+        if (btnOpenOrux) {
+            btnOpenOrux.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.executeExport(true);
             });
         }
 
@@ -36,12 +112,16 @@ const RouteExporter = {
         });
     },
 
-    executeExport() {
+    getExportParams() {
         const planner = window.RoutePlanner || (typeof RoutePlanner !== 'undefined' ? RoutePlanner : null);
 
         if (!planner || (planner.points.length === 0 && !planner.currentRouteData)) {
-            alert("⚠️ No hay ruta ni puntos para exportar");
-            return;
+            if (planner && typeof planner.showToast === 'function') {
+                planner.showToast("No hay ruta ni puntos para exportar");
+            } else {
+                alert("⚠️ No hay ruta ni puntos para exportar");
+            }
+            return null;
         }
 
         let format = 'kml';
@@ -53,13 +133,95 @@ const RouteExporter = {
         let filename = inputNombre && inputNombre.value.trim() ? inputNombre.value.trim() : `otromundo_ruta.${format}`;
         if (!filename.endsWith(`.${format}`)) filename += `.${format}`;
 
-        if (format === 'kml') {
-            this.downloadKmlHierarchical(filename, planner);
-        } else {
-            this.downloadGpx(filename, planner);
+        return { planner, format, filename };
+    },
+
+    async executeExport(openInOrux = false) {
+        const params = this.getExportParams();
+        if (!params) return;
+
+        const { planner, format, filename } = params;
+        const content = format === 'kml'
+            ? this.buildKmlHierarchical(filename, planner)
+            : this.buildGpx(filename, planner);
+        const mimeType = format === 'kml'
+            ? 'application/vnd.google-earth.kml+xml'
+            : 'application/gpx+xml';
+
+        if (!openInOrux) {
+            this.triggerBlobDownload(content, filename, mimeType);
+            document.getElementById("side-panel-planner-options")?.classList.remove("active");
+            return;
         }
 
-        document.getElementById("side-panel-planner-options")?.classList.remove("active");
+        // Flujo de apertura directa mediante esquema orux-track://
+        await this.openDirectInOruxMaps(content, filename, mimeType, planner);
+    },
+
+    async openDirectInOruxMaps(content, filename, mimeType, planner) {
+        const btnOrux = document.getElementById("opt-btn-open-orux");
+        const originalHTML = btnOrux ? btnOrux.innerHTML : "";
+
+        if (btnOrux) {
+            btnOrux.disabled = true;
+            btnOrux.innerHTML = `<span>Preparando...</span>`;
+        }
+        if (planner && typeof planner.showToast === 'function') {
+            planner.showToast("Enviando traza a OruxMaps...");
+        }
+
+        try {
+            // Al ser una PWA sin backend propio, alojamos temporalmente el KML/GPX generado
+            // para obtener una URL HTTPS directa que OruxMaps descargará al abrir orux-track://
+            const formData = new FormData();
+            const fileBlob = new Blob([content], { type: mimeType });
+            formData.append("file", fileBlob, filename);
+
+            const response = await fetch("https://tmpfiles.org/api/v1/upload", {
+                method: "POST",
+                body: formData
+            });
+
+            if (!response.ok) throw new Error("Fallo al preparar enlace temporal");
+
+            const result = await response.json();
+            // tmpfiles devuelve https://tmpfiles.org/12345/ruta.kml -> la descarga directa lleva /dl/
+            const viewUrl = result?.data?.url;
+            if (!viewUrl) throw new Error("URL de descarga no recibida");
+
+            const directHttpsUrl = viewUrl.replace("https://tmpfiles.org/", "https://tmpfiles.org/dl/");
+            const oruxTrackDeepLink = directHttpsUrl.replace(/^https?:\/\//i, "orux-track://");
+
+            document.getElementById("side-panel-planner-options")?.classList.remove("active");
+            window.location.href = oruxTrackDeepLink;
+
+        } catch (err) {
+            console.warn("No se pudo generar enlace temporal, intentando vía BRouter directo:", err);
+
+            // Plan B: Si todos los tramos usan el mismo perfil BRouter (no manual), construir URL directa a BRouter
+            const firstProfile = planner.segments?.[0]?.profile || planner.profile;
+            const allSameBRouter = planner.points.length >= 2 &&
+                firstProfile !== "manual-straight" &&
+                planner.segments.every(s => s.profile === firstProfile);
+
+            if (allSameBRouter) {
+                const lonlatsStr = planner.points.map(p => `${p.coords[0]},${p.coords[1]}`).join('|');
+                const brouterOruxUrl = `orux-track://brouter.de/brouter?lonlats=${lonlatsStr}&profile=${firstProfile}&alternativeidx=${planner.currentRouteIndex || 0}&format=gpx`;
+                document.getElementById("side-panel-planner-options")?.classList.remove("active");
+                window.location.href = brouterOruxUrl;
+            } else {
+                // Plan C: Descarga tradicional como respaldo
+                if (planner && typeof planner.showToast === 'function') {
+                    planner.showToast("Descargando archivo para abrir manualmente...");
+                }
+                this.triggerBlobDownload(content, filename, mimeType);
+            }
+        } finally {
+            if (btnOrux) {
+                btnOrux.disabled = false;
+                btnOrux.innerHTML = originalHTML;
+            }
+        }
     },
 
     hexToKmlColor(hex) {
@@ -70,7 +232,7 @@ const RouteExporter = {
         return `ff${b}${g}${r}`;
     },
 
-    downloadKmlHierarchical(filename, planner) {
+    buildKmlHierarchical(filename, planner) {
         let kml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
         kml += `<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:om="http://www.oruxmaps.com/oruxmapsextensions/1/0" xmlns:gx="http://www.google.com/kml/ext/2.2">\n`;
         kml += `<Document>\n`;
@@ -136,11 +298,10 @@ const RouteExporter = {
 
         kml += `</Document>\n`;
         kml += `</kml>`;
-
-        this.triggerBlobDownload(kml, filename, 'application/vnd.google-earth.kml+xml');
+        return kml;
     },
 
-    downloadGpx(filename, planner) {
+    buildGpx(filename, planner) {
         let gpx = `<?xml version="1.0" encoding="UTF-8"?>\n`;
         gpx += `<gpx version="1.1" creator="Otromundo - PWA" xmlns="http://www.topografix.com/GPX/1/1" xmlns:om="http://www.oruxmaps.com/oruxmapsextensions/1/0">\n`;
         gpx += `  <metadata>\n`;
@@ -175,7 +336,7 @@ const RouteExporter = {
                     : (seg.coordinates && seg.coordinates.length >= 2 ? seg.coordinates : [pStart, pEnd]);
 
                 subCoords.forEach((c, cIdx) => {
-                    if (sIdx > 0 && cIdx === 0) return; // Evitar duplicar vértices en uniones
+                    if (sIdx > 0 && cIdx === 0) return;
 
                     gpx += `      <trkpt lat="${c[1]}" lon="${c[0]}">\n`;
                     if (c[2] !== undefined) gpx += `        <ele>${c[2]}</ele>\n`;
@@ -188,7 +349,7 @@ const RouteExporter = {
         }
 
         gpx += `</gpx>`;
-        this.triggerBlobDownload(gpx, filename, 'text/xml');
+        return gpx;
     },
 
     triggerBlobDownload(content, filename, contentType) {
