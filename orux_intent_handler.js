@@ -1,5 +1,5 @@
 // ==========================================
-// ORUX_INTENT_HANDLER.JS - Integración con OruxMaps e Intents Externos
+// ORUX_INTENT_HANDLER.JS - Integración con OruxMaps e Intents Externos (Soporte Terreno 3D)
 // ==========================================
 
 const OruxIntentHandler = {
@@ -28,16 +28,48 @@ const OruxIntentHandler = {
     // Esperar a que el mapa esté completamente listo
     const waitForMap = setInterval(() => {
       const mapObj = window.map || (window.RoutePlanner && window.RoutePlanner.map);
-      if (mapObj && typeof mapObj.flyTo === 'function') {
+      if (mapObj && typeof mapObj.jumpTo === 'function') {
         clearInterval(waitForMap);
         
-        // Centrar mapa en la posición recibida
-        mapObj.flyTo({ center: [lon, lat], zoom: 15 });
+        // Saltar directamente a la zona para que MapLibre descargue inmediatamente las teselas DEM de esa montaña
+        mapObj.jumpTo({
+          center: [lon, lat],
+          zoom: 15,
+          pitch: 0,
+          bearing: 0
+        });
+
+        // Cuando el terreno 3D termine de cargar en esa zona, forzar actualización de proyección
+        const snapToTerrain = () => {
+          if (typeof mapObj.triggerRepaint === 'function') mapObj.triggerRepaint();
+          if (window.RoutePlanner && typeof window.RoutePlanner.renderMarkers === 'function') {
+            window.RoutePlanner.renderMarkers();
+          }
+        };
+
+        mapObj.once('idle', snapToTerrain);
         
         // Mostrar modal de elección para OruxMaps
         this.showOruxActionModal([lon, lat]);
       }
     }, 150);
+  },
+
+  sync3DMarkersAfterAction(mapObj, coords) {
+    if (!mapObj) return;
+    const reproject = () => {
+      mapObj.jumpTo({
+        center: coords,
+        zoom: mapObj.getZoom(),
+        pitch: mapObj.getPitch(),
+        bearing: mapObj.getBearing()
+      });
+      if (window.RoutePlanner && typeof window.RoutePlanner.renderMarkers === 'function') {
+        window.RoutePlanner.renderMarkers();
+      }
+    };
+    setTimeout(reproject, 250);
+    mapObj.once('idle', reproject);
   },
   
   showOruxActionModal(coords) {
@@ -63,12 +95,12 @@ const OruxIntentHandler = {
                 <div style="display: flex; flex-direction: column; gap: 8px; width: 100%; margin-top: 4px;">
                     <button id="orux-btn-start-route" style="background: #00e5ff; color: #121212; border: none; padding: 11px; border-radius: 10px; font-weight: bold; font-size: 0.85rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 12px rgba(0, 229, 255, 0.3);">
                         <img src="./ui-icons/fi-rr-square-plus.svg" width="16" height="16" style="filter: brightness(0);">
-                        <span>📍 Iniciar Ruta Aquí</span>
+                        <span> Iniciar Ruta Aquí</span>
                     </button>
 
                     <button id="orux-btn-circular-route" style="background: rgba(0, 229, 255, 0.15); border: 1px solid #00e5ff; color: #00e5ff; padding: 11px; border-radius: 10px; font-weight: bold; font-size: 0.85rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
                         <img src="./ui-icons/fi-rr-rotate-right.svg" width="16" height="16" style="filter: brightness(0) saturate(100%) invert(77%);">
-                        <span>🔄 Generar Ruta Circular</span>
+                        <span> Generar Ruta Circular</span>
                     </button>
 
                     <button id="orux-btn-view-only" style="background: transparent; border: none; color: #aaa; padding: 8px; font-size: 0.78rem; cursor: pointer; text-decoration: underline;">
@@ -82,6 +114,7 @@ const OruxIntentHandler = {
     document.body.insertAdjacentHTML('beforeend', modalHTML);
     
     const closeModal = () => document.getElementById('orux-action-modal')?.remove();
+    const mapObj = window.map || (window.RoutePlanner && window.RoutePlanner.map);
     
     document.getElementById('btn-close-orux-modal').addEventListener('click', closeModal);
     document.getElementById('orux-btn-view-only').addEventListener('click', closeModal);
@@ -93,6 +126,7 @@ const OruxIntentHandler = {
       if (planner) {
         planner.addPoint(coords, "OruxMaps Inicio");
         planner.showToast("Punto inicial fijado desde OruxMaps");
+        this.sync3DMarkersAfterAction(mapObj, coords);
       }
     });
     
@@ -105,6 +139,7 @@ const OruxIntentHandler = {
         planner.circularManager.syncModalSelectWithApp();
         planner.circularManager.modalElement.style.display = 'flex';
         planner.showToast("Radar circular abierto en ubicación OruxMaps");
+        this.sync3DMarkersAfterAction(mapObj, coords);
       }
     });
   }

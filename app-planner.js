@@ -83,6 +83,15 @@ const RoutePlanner = {
                 }, 200);
             });
 
+            // Reproyectar marcadores sobre la superficie cuando termine de cargar el relieve DEM 3D
+            map.on('terrain', () => {
+                if (this.markers && this.markers.length > 0) {
+                    this.markers.forEach((m, i) => {
+                        if (this.points[i]) m.setLngLat(this.points[i].coords);
+                    });
+                }
+            });
+
             map.on('move', () => {
                 this.updateDynamicCursorLine();
             });
@@ -133,7 +142,7 @@ const RoutePlanner = {
             });
         });
 
-               // ==========================================
+        // ==========================================
         // PANEL DE PERFILES DE ENRUTAMIENTO (CON VALIDACIÓN ✓)
         // ==========================================
         const btnProfiles = document.getElementById("planner-btn-profiles");
@@ -147,7 +156,6 @@ const RoutePlanner = {
             warningBox.style.display = this.applyOnlyToFuture ? "none" : "block";
         };
         
-        // Al abrir el panel: sincronizar radio seleccionado y estado del aviso
         btnProfiles?.addEventListener("click", () => {
             const currentRadio = document.querySelector(`input[name="brouter-profile"][value="${this.profile}"]`);
             if (currentRadio) currentRadio.checked = true;
@@ -155,14 +163,12 @@ const RoutePlanner = {
             profilesDrawer?.classList.add("active");
         });
         
-        // Al cancelar con X: restaurar radio al perfil activo sin recalcular
         closeProfiles?.addEventListener("click", () => {
             const currentRadio = document.querySelector(`input[name="brouter-profile"][value="${this.profile}"]`);
             if (currentRadio) currentRadio.checked = true;
             profilesDrawer?.classList.remove("active");
         });
         
-        // Al validar con ✓: aplicar el perfil seleccionado y cerrar
         validateProfiles?.addEventListener("click", () => {
             const selectedRadio = document.querySelector('input[name="brouter-profile"]:checked');
             const newProfile = selectedRadio ? selectedRadio.value : this.profile;
@@ -187,7 +193,6 @@ const RoutePlanner = {
             profilesDrawer?.classList.remove("active");
         });
         
-        // Interruptor: Aplicar solo a los próximos puntos
         const optFuture = document.getElementById("opt-btn-apply-future");
         const toggleFuture = document.getElementById("toggle-apply-future-mode");
         optFuture?.addEventListener("click", () => {
@@ -196,6 +201,7 @@ const RoutePlanner = {
             updateProfileWarningVisibility();
             this.showToast(this.applyOnlyToFuture ? "Perfil futuro activado" : "Perfil global activado");
         });
+
         const circularCard = document.getElementById('planner-circular-route-card');
         circularCard?.addEventListener('click', () => {
             if (this.circularManager) {
@@ -349,59 +355,59 @@ const RoutePlanner = {
         });
     },
 
-       setupChangelogModalEvents() {
-            const modal = document.getElementById("planner-changelog-modal");
-            const openBtn = document.getElementById("btn-open-changelog");
-            const closeBtn = document.getElementById("btn-close-changelog-modal");
-            const optionsDrawer = document.getElementById("side-panel-planner-options");
-            
-            openBtn?.addEventListener("click", () => {
-                this.loadChangelogContent();
-                if (modal) modal.style.display = "flex";
-                if (optionsDrawer) optionsDrawer.classList.remove("active");
-            });
-            
-            closeBtn?.addEventListener("click", () => {
-                if (modal) modal.style.display = "none";
-            });
-            
-            modal?.addEventListener("click", (e) => {
-                if (e.target === modal) modal.style.display = "none";
-            });
-        },
+    setupChangelogModalEvents() {
+        const modal = document.getElementById("planner-changelog-modal");
+        const openBtn = document.getElementById("btn-open-changelog");
+        const closeBtn = document.getElementById("btn-close-changelog-modal");
+        const optionsDrawer = document.getElementById("side-panel-planner-options");
         
-        loadChangelogContent() {
-            const contentContainer = document.getElementById("changelog-modal-content");
-            const titleEl = document.getElementById("changelog-modal-title");
-            if (!contentContainer) return;
+        openBtn?.addEventListener("click", () => {
+            this.loadChangelogContent();
+            if (modal) modal.style.display = "flex";
+            if (optionsDrawer) optionsDrawer.classList.remove("active");
+        });
+        
+        closeBtn?.addEventListener("click", () => {
+            if (modal) modal.style.display = "none";
+        });
+        
+        modal?.addEventListener("click", (e) => {
+            if (e.target === modal) modal.style.display = "none";
+        });
+    },
+    
+    loadChangelogContent() {
+        const contentContainer = document.getElementById("changelog-modal-content");
+        const titleEl = document.getElementById("changelog-modal-title");
+        if (!contentContainer) return;
+        
+        const data = window.PLANNER_CHANGELOG_DATA;
+        if (!data) return;
+        
+        if (titleEl && data.title) titleEl.innerText = `${data.title} (${data.version})`;
+        
+        contentContainer.innerHTML = "";
+        data.sections.forEach(sec => {
+            const item = document.createElement("div");
             
-            const data = window.PLANNER_CHANGELOG_DATA;
-            if (!data) return;
-            
-            if (titleEl && data.title) titleEl.innerText = `${data.title} (${data.version})`;
-            
-            contentContainer.innerHTML = "";
-            data.sections.forEach(sec => {
-                const item = document.createElement("div");
-                
-                if (sec.isHeader) {
-                    item.style.cssText = `
+            if (sec.isHeader) {
+                item.style.cssText = `
                     font-weight: bold; color: #00e5ff; font-size: 0.95rem; 
                     margin-top: 14px; margin-bottom: -2px; padding-bottom: 6px;
                     border-bottom: 1px solid rgba(0,229,255,0.3); font-family: sans-serif;
                     display: flex; align-items: center; gap: 8px;
                 `;
-                    item.innerHTML = `
+                item.innerHTML = `
                     <img src="${sec.icon}" width="16" height="16" style="filter: brightness(0) saturate(100%) invert(77%);" alt="${sec.title}">
                     <span>${sec.title}</span>
                 `;
-                } else {
-                    item.style.cssText = `
+            } else {
+                item.style.cssText = `
                     display: flex; gap: 14px; align-items: flex-start;
                     background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
                     border-radius: 10px; padding: 12px;
                 `;
-                    item.innerHTML = `
+                item.innerHTML = `
                     <div style="background: rgba(0,229,255,0.1); border-radius: 8px; padding: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
                         <img src="${sec.icon}" width="20" height="20" style="filter: brightness(0) saturate(100%) invert(77%);" alt="${sec.title}">
                     </div>
@@ -410,25 +416,25 @@ const RoutePlanner = {
                         <div style="color: #ccc; font-size: 0.82rem; line-height: 1.4;">${sec.desc}</div>
                     </div>
                 `;
-                }
-                contentContainer.appendChild(item);
-            });
-        },
-        
-        checkAndShowChangelog() {
-            const data = window.PLANNER_CHANGELOG_DATA;
-            if (!data) return;
-            
-            const lastSeenVersion = localStorage.getItem('otromundo_last_seen_version');
-            if (lastSeenVersion !== data.version) {
-                this.loadChangelogContent();
-                const modal = document.getElementById("planner-changelog-modal");
-                if (modal) {
-                    modal.style.display = "flex";
-                    localStorage.setItem('otromundo_last_seen_version', data.version);
-                }
             }
-        },
+            contentContainer.appendChild(item);
+        });
+    },
+    
+    checkAndShowChangelog() {
+        const data = window.PLANNER_CHANGELOG_DATA;
+        if (!data) return;
+        
+        const lastSeenVersion = localStorage.getItem('otromundo_last_seen_version');
+        if (lastSeenVersion !== data.version) {
+            this.loadChangelogContent();
+            const modal = document.getElementById("planner-changelog-modal");
+            if (modal) {
+                modal.style.display = "flex";
+                localStorage.setItem('otromundo_last_seen_version', data.version);
+            }
+        }
+    },
 
     setupAndroidBackButton() {
         let lastBackPressTime = 0;
@@ -540,10 +546,9 @@ const RoutePlanner = {
         contentContainer.dataset.loaded = "true";
     },
 
-        activateMapInteractions() {
+    activateMapInteractions() {
         if (!map || typeof map.on !== 'function') return;
         
-        // Detectar si el usuario está en PC (ratón preciso) o dispositivo táctil
         const isDesktopPointer = window.matchMedia && window.matchMedia('(pointer: fine)').matches;
         const mapContainer = map.getContainer();
         
@@ -551,7 +556,6 @@ const RoutePlanner = {
             mapContainer.style.cursor = 'crosshair';
         }
         
-        // Rastrear posición del ratón en el mapa para usarla con la barra espaciadora
         let lastMouseLngLat = null;
         map.on('mousemove', (e) => {
             lastMouseLngLat = e.lngLat;
@@ -560,7 +564,6 @@ const RoutePlanner = {
             lastMouseLngLat = null;
         });
         
-        // 1. Clic izquierdo: en PC añade punto directo al final (en orden 1, 2, 3...); en móvil respeta el candado táctil
         map.on('click', (e) => {
             if (this.circularManager && this.circularManager.isSelectingStart) {
                 this.circularManager.handleMapClick(e.lngLat);
@@ -578,14 +581,12 @@ const RoutePlanner = {
             this.addPoint([e.lngLat.lng, e.lngLat.lat], "Punto");
         });
         
-        // 2. Clic derecho: insertar punto intermedio en el tramo más cercano
         map.on('contextmenu', (e) => {
             const panel = document.getElementById("route-planner-bottom-panel");
             if (!panel || panel.style.display === "none") return;
             this.insertIntermediatePoint(e.lngLat);
         });
         
-        // 3. Atajos de teclado en PC: Barra Espaciadora para añadir punto y Ctrl+Z / Retroceso para deshacer
         document.addEventListener('keydown', (e) => {
             const activeTag = document.activeElement?.tagName;
             if (activeTag === 'INPUT' || activeTag === 'TEXTAREA' || activeTag === 'SELECT') return;
@@ -610,7 +611,6 @@ const RoutePlanner = {
             }
         });
         
-        // 4. Pulsación larga táctil en móvil para insertar punto intermedio
         let touchTimer = null;
         let startTouchCoord = null;
         
@@ -1525,7 +1525,7 @@ const RoutePlanner = {
         statusTextEl.style.color = "var(--primary-cyan)";
     },
 
-        renderMarkers() {
+    renderMarkers() {
         if (!map) return;
         this.markers.forEach(m => m.remove());
         this.markers = [];
@@ -1544,12 +1544,12 @@ const RoutePlanner = {
             el.innerText = index + 1;
             
             const marker = new maplibregl.Marker({
-                    element: el,
-                    draggable: true,
-                    anchor: 'center',
-                    pitchAlignment: 'viewport',
-                    rotationAlignment: 'viewport'
-                })
+                element: el,
+                draggable: true,
+                anchor: 'center',
+                pitchAlignment: 'viewport',
+                rotationAlignment: 'viewport'
+            })
                 .setLngLat(point.coords)
                 .addTo(map);
             
