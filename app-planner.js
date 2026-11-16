@@ -9,6 +9,7 @@ const map = new maplibregl.Map({
     style: savedStyle,
     center: savedCenter,
     zoom: savedZoom,
+    maxPitch: 85,
     attributionControl: false
 });
 window.map = map;
@@ -132,42 +133,69 @@ const RoutePlanner = {
             });
         });
 
+               // ==========================================
+        // PANEL DE PERFILES DE ENRUTAMIENTO (CON VALIDACIÓN ✓)
+        // ==========================================
         const btnProfiles = document.getElementById("planner-btn-profiles");
         const profilesDrawer = document.getElementById("side-panel-profiles");
         const closeProfiles = document.getElementById("btn-close-profiles-drawer");
-
-        btnProfiles?.addEventListener("click", () => profilesDrawer?.classList.add("active"));
-        closeProfiles?.addEventListener("click", () => profilesDrawer?.classList.remove("active"));
-
-        document.querySelectorAll('input[name="brouter-profile"]').forEach(radio => {
-            radio.addEventListener("change", (e) => {
-                const newProfile = e.target.value;
-
-                if (this.applyOnlyToFuture) {
-                    this.profile = newProfile;
-                    this.updateDefaultProfileStatus();
-                    this.showToast(`Próximo tramo: ${newProfile}`);
-                } else {
-                    this.profile = newProfile;
-                    this.updateDefaultProfileStatus();
-                    this.segments.forEach(seg => {
-                        seg.profile = this.profile;
-                    });
-                    if (this.points.length >= 2) this.calcularRutaBRouter();
-                }
-
-                profilesDrawer?.classList.remove("active");
-            });
+        const validateProfiles = document.getElementById("btn-validate-profiles-drawer");
+        const warningBox = document.getElementById("profile-overwrite-warning");
+        
+        const updateProfileWarningVisibility = () => {
+            if (!warningBox) return;
+            warningBox.style.display = this.applyOnlyToFuture ? "none" : "block";
+        };
+        
+        // Al abrir el panel: sincronizar radio seleccionado y estado del aviso
+        btnProfiles?.addEventListener("click", () => {
+            const currentRadio = document.querySelector(`input[name="brouter-profile"][value="${this.profile}"]`);
+            if (currentRadio) currentRadio.checked = true;
+            updateProfileWarningVisibility();
+            profilesDrawer?.classList.add("active");
         });
-
+        
+        // Al cancelar con X: restaurar radio al perfil activo sin recalcular
+        closeProfiles?.addEventListener("click", () => {
+            const currentRadio = document.querySelector(`input[name="brouter-profile"][value="${this.profile}"]`);
+            if (currentRadio) currentRadio.checked = true;
+            profilesDrawer?.classList.remove("active");
+        });
+        
+        // Al validar con ✓: aplicar el perfil seleccionado y cerrar
+        validateProfiles?.addEventListener("click", () => {
+            const selectedRadio = document.querySelector('input[name="brouter-profile"]:checked');
+            const newProfile = selectedRadio ? selectedRadio.value : this.profile;
+            
+            this.profile = newProfile;
+            this.updateDefaultProfileStatus();
+            
+            if (this.applyOnlyToFuture) {
+                this.showToast(`Próximo tramo: ${newProfile}`);
+            } else {
+                this.segments.forEach(seg => {
+                    seg.profile = this.profile;
+                });
+                if (this.points.length >= 2) {
+                    this.showToast("Recalculando ruta con nuevo perfil...");
+                    this.calcularRutaBRouter();
+                } else {
+                    this.showToast(`Perfil activo: ${newProfile}`);
+                }
+            }
+            
+            profilesDrawer?.classList.remove("active");
+        });
+        
+        // Interruptor: Aplicar solo a los próximos puntos
         const optFuture = document.getElementById("opt-btn-apply-future");
         const toggleFuture = document.getElementById("toggle-apply-future-mode");
         optFuture?.addEventListener("click", () => {
             this.applyOnlyToFuture = !this.applyOnlyToFuture;
             if (toggleFuture) toggleFuture.checked = this.applyOnlyToFuture;
+            updateProfileWarningVisibility();
             this.showToast(this.applyOnlyToFuture ? "Perfil futuro activado" : "Perfil global activado");
         });
-
         const circularCard = document.getElementById('planner-circular-route-card');
         circularCard?.addEventListener('click', () => {
             if (this.circularManager) {
@@ -512,53 +540,100 @@ const RoutePlanner = {
         contentContainer.dataset.loaded = "true";
     },
 
-    activateMapInteractions() {
+        activateMapInteractions() {
         if (!map || typeof map.on !== 'function') return;
-
+        
+        // Detectar si el usuario está en PC (ratón preciso) o dispositivo táctil
+        const isDesktopPointer = window.matchMedia && window.matchMedia('(pointer: fine)').matches;
+        const mapContainer = map.getContainer();
+        
+        if (isDesktopPointer && mapContainer) {
+            mapContainer.style.cursor = 'crosshair';
+        }
+        
+        // Rastrear posición del ratón en el mapa para usarla con la barra espaciadora
+        let lastMouseLngLat = null;
+        map.on('mousemove', (e) => {
+            lastMouseLngLat = e.lngLat;
+        });
+        mapContainer.addEventListener('mouseleave', () => {
+            lastMouseLngLat = null;
+        });
+        
+        // 1. Clic izquierdo: en PC añade punto directo al final (en orden 1, 2, 3...); en móvil respeta el candado táctil
         map.on('click', (e) => {
             if (this.circularManager && this.circularManager.isSelectingStart) {
                 this.circularManager.handleMapClick(e.lngLat);
                 return;
             }
-
+            
             if (this.isDraggingMarker) return;
-            if (!this.isTouchAddEnabled) return;
-
+            
+            const canAddPoint = isDesktopPointer ? true : this.isTouchAddEnabled;
+            if (!canAddPoint) return;
+            
             const panel = document.getElementById("route-planner-bottom-panel");
             if (!panel || panel.style.display === "none") return;
+            
             this.addPoint([e.lngLat.lng, e.lngLat.lat], "Punto");
         });
-
+        
+        // 2. Clic derecho: insertar punto intermedio en el tramo más cercano
         map.on('contextmenu', (e) => {
             const panel = document.getElementById("route-planner-bottom-panel");
             if (!panel || panel.style.display === "none") return;
             this.insertIntermediatePoint(e.lngLat);
         });
-
-        const mapContainer = map.getContainer();
+        
+        // 3. Atajos de teclado en PC: Barra Espaciadora para añadir punto y Ctrl+Z / Retroceso para deshacer
+        document.addEventListener('keydown', (e) => {
+            const activeTag = document.activeElement?.tagName;
+            if (activeTag === 'INPUT' || activeTag === 'TEXTAREA' || activeTag === 'SELECT') return;
+            
+            const panel = document.getElementById("route-planner-bottom-panel");
+            if (!panel || panel.style.display === "none") return;
+            
+            if (e.code === 'Space') {
+                e.preventDefault();
+                const targetCoords = lastMouseLngLat ?
+                    [lastMouseLngLat.lng, lastMouseLngLat.lat] :
+                    [map.getCenter().lng, map.getCenter().lat];
+                
+                if (this.circularManager && this.circularManager.isSelectingStart) {
+                    this.circularManager.handleMapClick({ lng: targetCoords[0], lat: targetCoords[1] });
+                } else {
+                    this.addPoint(targetCoords, "Punto");
+                }
+            } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+                e.preventDefault();
+                if (this.points.length > 0) this.removePoint(this.points.length - 1);
+            }
+        });
+        
+        // 4. Pulsación larga táctil en móvil para insertar punto intermedio
         let touchTimer = null;
         let startTouchCoord = null;
-
+        
         mapContainer.addEventListener('touchstart', (e) => {
             if (!this.isTouchAddEnabled) return;
             const panel = document.getElementById("route-planner-bottom-panel");
             if (!panel || panel.style.display === "none" || e.touches.length !== 1) return;
-
+            
             const touch = e.touches[0];
             startTouchCoord = { x: touch.clientX, y: touch.clientY };
-
+            
             clearTimeout(touchTimer);
             touchTimer = setTimeout(() => {
                 const rect = mapContainer.getBoundingClientRect();
                 const point = [startTouchCoord.x - rect.left, startTouchCoord.y - rect.top];
                 const lngLat = map.unproject(point);
-
+                
                 if (navigator.vibrate) navigator.vibrate(50);
                 this.insertIntermediatePoint(lngLat);
                 startTouchCoord = null;
             }, 600);
         }, { passive: true });
-
+        
         mapContainer.addEventListener('touchmove', (e) => {
             if (!startTouchCoord || e.touches.length !== 1) return;
             const touch = e.touches[0];
@@ -569,7 +644,7 @@ const RoutePlanner = {
                 startTouchCoord = null;
             }
         }, { passive: true });
-
+        
         mapContainer.addEventListener('touchend', () => {
             clearTimeout(touchTimer);
             startTouchCoord = null;
