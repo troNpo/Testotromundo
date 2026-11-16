@@ -1,10 +1,35 @@
 window.PLANNER_CHANGELOG_DATA = {
-"version": "V1.4",
+"version": "V1.2.1",
 "title": "Novedades en OtroMundo",
 "sections": [
 {
 "isHeader": true,
-"title": "V1.2 - Mejoras",
+"title": "V1.2.1 (16/11/26) - Novedades",
+"icon": "ui-icons/fi-rr-star.svg"
+},
+{
+"title": "Integración con OruxMaps",
+"desc": "Nuevo asistente en ajustes para configurar GeoIntents de envío rápido desde OruxMaps y descargar el mapa vectorial OtroMundo.map.json (con tu API Key o como plantilla limpia).",
+"icon": "ui-icons/logo_rojo.png"
+},
+{
+"isHeader": true,
+"title": "V1.2.1 - Mejoras",
+"icon": "ui-icons/fi-rr-tools.svg"
+},
+{
+"title": "Calibración precisa de Rutas Circulares",
+"desc": "Nuevo algoritmo iterativo que ajusta el radio según la sinuosidad real del terreno y el perfil elegido para evitar que la ruta sobrepase la distancia objetivo.",
+"icon": "ui-icons/fi-rr-rotate-right.svg"
+},
+{
+"title": "Importador de tracks optimizado",
+"desc": "Eliminada la opción de trazado recto manual al convertir archivos GPX o KML externos para garantizar una adaptación fiel sobre senderos y caminos.",
+"icon": "ui-icons/fi-rr-route.svg"
+},
+{
+"isHeader": true,
+"title": "V1.2.1 - Mejoras",
 "icon": "ui-icons/fi-rr-tools.svg"
 },
 {
@@ -34,7 +59,7 @@ window.PLANNER_CHANGELOG_DATA = {
 },
 {
 "title": "Rutas Circulares",
-"desc": "Nueva herramienta para generar rutas curculares automáticas eligiendo rumbo y distancia total aproximada.",
+"desc": "Nueva herramienta para generar rutas circulares automáticas eligiendo rumbo y distancia total aproximada.",
 "icon": "ui-icons/fi-rr-rotate-right.svg"
 },
 {
@@ -59,7 +84,7 @@ window.PLANNER_CHANGELOG_DATA = {
 },
 {
 "title": "Buscador Nominatim mejorado",
-"desc": "Nuevo campo de entrada (input) optimizado en el banner superior para buscar ubicaciones sin perdida de texto.",
+"desc": "Nuevo campo de entrada (input) optimizado en el banner superior para buscar ubicaciones sin pérdida de texto.",
 "icon": "ui-icons/fi-rr-search.svg"
 },
 {
