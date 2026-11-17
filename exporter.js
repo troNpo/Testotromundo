@@ -20,6 +20,39 @@ const RouteExporter = {
         return isAndroid || isIOS || isCoarsePointer;
     },
 
+    // Aviso flotante visible incluso con los paneles laterales abiertos
+    showExportNotice(message, isError = false) {
+        document.getElementById("exporter-floating-toast")?.remove();
+
+        const toast = document.createElement("div");
+        toast.id = "exporter-floating-toast";
+        toast.style.cssText = `
+            position: fixed;
+            top: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(18, 18, 20, 0.96);
+            color: ${isError ? '#ff5252' : '#00e5ff'};
+            border: 1.5px solid ${isError ? '#ff5252' : '#00e5ff'};
+            border-radius: 12px;
+            padding: 10px 18px;
+            font-family: sans-serif;
+            font-size: 0.85rem;
+            font-weight: bold;
+            z-index: 60000;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.75);
+            text-align: center;
+            max-width: 88vw;
+            pointer-events: none;
+        `;
+        toast.innerText = message;
+        document.body.appendChild(toast);
+
+        setTimeout(() => {
+            toast.remove();
+        }, 3000);
+    },
+
     // Inyecta dinámicamente el botón "Abrir en OruxMaps" junto al botón de descarga en Android/iOS
     injectOruxOpenButton() {
         if (!this.isMobileOrTablet()) return;
@@ -116,12 +149,8 @@ const RouteExporter = {
     getExportParams() {
         const planner = window.RoutePlanner || (typeof RoutePlanner !== 'undefined' ? RoutePlanner : null);
 
-        if (!planner || (planner.points.length === 0 && !planner.currentRouteData)) {
-            if (planner && typeof planner.showToast === 'function') {
-                planner.showToast("No hay ruta ni puntos para exportar");
-            } else {
-                alert("⚠️ No hay ruta ni puntos para exportar");
-            }
+        if (!planner || ((!planner.points || planner.points.length === 0) && !planner.currentRouteData)) {
+            this.showExportNotice("⚠️ No hay ruta ni puntos para exportar", true);
             return null;
         }
 
@@ -142,8 +171,7 @@ const RouteExporter = {
         if (!params) return;
 
         const { planner, format, filename } = params;
-        
-        // Generamos siempre el archivo íntegro de OtroMundo (con nombres de waypoints, colores y tramos mixtos)
+
         const content = format === 'kml'
             ? this.buildKmlHierarchical(filename, planner)
             : this.buildGpx(filename, planner);
@@ -154,13 +182,14 @@ const RouteExporter = {
         if (!openInOrux) {
             this.triggerBlobDownload(content, filename, mimeType);
             document.getElementById("side-panel-planner-options")?.classList.remove("active");
+            this.showExportNotice(`Archivo ${filename} descargado`);
             return;
         }
 
-        await this.openDirectInOruxMaps(content, filename, format, mimeType, planner);
+        await this.openDirectInOruxMaps(content, filename, format, mimeType);
     },
 
-    async openDirectInOruxMaps(content, filename, format, mimeType, planner) {
+    async openDirectInOruxMaps(content, filename, format, mimeType) {
         const btnOrux = document.getElementById("opt-btn-open-orux");
         const originalHTML = btnOrux ? btnOrux.innerHTML : "";
 
@@ -168,43 +197,49 @@ const RouteExporter = {
             btnOrux.disabled = true;
             btnOrux.innerHTML = `<span>Enviando...</span>`;
         }
-        if (planner && typeof planner.showToast === 'function') {
-            planner.showToast(`Preparando ${filename} para OruxMaps...`);
-        }
+        this.showExportNotice(`Preparando ${filename} para OruxMaps...`);
 
         try {
-            // Alojamos el archivo exacto generado por OtroMundo (.kml o .gpx) en Litterbox (1h temporal)
-            // Devuelve una URL directa https://litter.catbox.moe/xxxxxx.kml (o .gpx) terminada en la extensión real,
-            // conservando al 100% los nombres de puntos, colores de tramos y segmentos rectos.
-            const formData = new FormData();
-            formData.append("reqtype", "fileupload");
-            formData.append("time", "1h");
-            const fileBlob = new Blob([content], { type: mimeType });
-            formData.append("fileToUpload", fileBlob, filename);
-
-            const response = await fetch("https://litterbox.catbox.moe/resources/internals/api.php", {
+            // paste.rs acepta texto plano por POST con CORS abierto y devuelve una URL directa (ej. https://paste.rs/abc12)
+            // Añadiendo .kml o .gpx al final (https://paste.rs/abc12.kml) devuelve el XML puro sin bloquear OruxMaps iOS/Android.
+            const response = await fetch("https://paste.rs/", {
                 method: "POST",
-                body: formData
+                body: content
             });
 
-            if (!response.ok) throw new Error("Fallo al preparar el archivo temporal");
+            if (!response.ok) throw new Error("Fallo al preparar el enlace temporal");
 
-            const directHttpsUrl = (await response.text()).trim();
-            if (!directHttpsUrl.startsWith("http")) {
+            const basePasteUrl = (await response.text()).trim().replace(/\/+$/, "");
+            if (!basePasteUrl.startsWith("http")) {
                 throw new Error("URL temporal no válida");
             }
 
-            // Convertimos https://... -> orux-track://... para que OruxMaps lo descargue y abra en pantalla
-            const oruxTrackDeepLink = directHttpsUrl.replace(/^https?:\/\//i, "orux-track://");
+            // Construimos https://paste.rs/xxxxx.kml (o .gpx) -> orux-track://paste.rs/xxxxx.kml
+            const directFileUrl = `${basePasteUrl}.${format}`;
+            const oruxTrackDeepLink = directFileUrl.replace(/^https?:\/\//i, "orux-track://");
 
             document.getElementById("side-panel-planner-options")?.classList.remove("active");
             window.location.href = oruxTrackDeepLink;
 
         } catch (err) {
-            console.warn("No se pudo generar el enlace temporal, descargando archivo local:", err);
-            if (planner && typeof planner.showToast === 'function') {
-                planner.showToast("Descargando archivo para abrir en OruxMaps...");
+            console.warn("No se pudo generar el enlace orux-track://, intentando compartir archivo nativo:", err);
+
+            // Plan B nativo en iOS/Android: hoja de compartir archivo real (.kml / .gpx) con OruxMaps
+            try {
+                const fileObj = new File([content], filename, { type: mimeType });
+                if (navigator.canShare && navigator.canShare({ files: [fileObj] })) {
+                    document.getElementById("side-panel-planner-options")?.classList.remove("active");
+                    await navigator.share({
+                        files: [fileObj],
+                        title: filename
+                    });
+                    return;
+                }
+            } catch (shareErr) {
+                console.warn("Compartir nativo cancelado o no disponible:", shareErr);
             }
+
+            this.showExportNotice("Descargando archivo para abrir en OruxMaps...");
             document.getElementById("side-panel-planner-options")?.classList.remove("active");
             this.triggerBlobDownload(content, filename, mimeType);
         } finally {
