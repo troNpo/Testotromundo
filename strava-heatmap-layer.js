@@ -1,5 +1,5 @@
 // ==========================================
-// STRAVA-HEATMAP-LAYER.JS - Capa Raster Strava (Parseo directo XML de OruxMaps)
+// STRAVA-HEATMAP-LAYER.JS - Capa Raster Strava Heatmap definitiva (Nakarte tiles-auth proxy)
 // ==========================================
 
 const StravaHeatmapManager = {
@@ -7,67 +7,34 @@ const StravaHeatmapManager = {
     opacity: 0.85,
     sourceId: "strava-heatmap-source",
     layerId: "strava-heatmap-layer",
-    xmlTemplate: "",
 
     init() {
-        this.loadOruxXmlDefinition();
         this.registerStravaProtocol();
         this.injectUIControls();
         this.setupMapListeners();
     },
 
-    // Definición XML exacta proporcionada por OruxMaps
-    loadOruxXmlDefinition() {
-        this.xmlTemplate = `
-        <onlinemapsource uid="2001">
-        <name>🌐 Strava All Blue (STRAVA)</name>
-        <url><![CDATA[https://proxy.nakarte.me/https/content-{$s}.strava.com/identified/globalheat/all/blue/{$z}/{$x}/{$y}.png?px=256]]></url>
-        <website><![CDATA[<font color="#000000">©Strava All Blue</font>]]></website>
-        <minzoom>1</minzoom>
-        <maxzoom>16</maxzoom>
-        <servers>a,b,c</servers>
-        <projection>MERCATORESFERICA</projection>
-        <httpparam name="User-Agent">{om}</httpparam>
-        <httpparam name="Referer">https://nakarte.me/</httpparam>
-        <cacheable>1</cacheable>
-        <downloadable>1</downloadable>
-        </onlinemapsource>
-        `;
-    },
-
     registerStravaProtocol() {
         if (typeof maplibregl === "undefined" || !maplibregl.addProtocol) return;
 
-        maplibregl.addProtocol("orux-xml-strava", async (params, abortController) => {
-            // params.url formato: orux-xml-strava://{z}/{x}/{y}
-            const cleanPath = params.url.replace("orux-xml-strava://", "");
+        maplibregl.addProtocol("nakarte-strava", async (params, abortController) => {
+            // params.url formato: nakarte-strava://{z}/{x}/{y}
+            const cleanPath = params.url.replace("nakarte-strava://", "");
             const parts = cleanPath.split("/");
-            if (parts.length < 3) throw new Error("Parámetros de tesela inválidos");
+            if (parts.length < 3) throw new Error("URL de tesela inválida");
 
             const [z, x, y] = parts;
             const servers = ["a", "b", "c"];
             const server = servers[(parseInt(x, 10) + parseInt(y, 10)) % servers.length];
 
-            // Extraemos la URL base del XML parseado y sustituimos las variables de MapLibre y OruxMaps
-            let parsedUrl = "https://proxy.nakarte.me/https/content-{$s}.strava.com/identified/globalheat/all/blue/{$z}/{$x}/{$y}.png?px=256";
-            
-            const match = this.xmlTemplate.match(/<url><!\[CDATA\[(.*?)\]\]><\/url>/);
-            if (match && match[1]) {
-                parsedUrl = match[1].trim();
-            }
-
-            const targetUrl = parsedUrl
-                .replace("{$s}", server)
-                .replace("{$z}", z)
-                .replace("{$x}", x)
-                .replace("{$y}", y);
+            // URL oficial exacta comprobada a través del proxy de Nakarte con tiles-auth
+            const targetUrl = `https://proxy.nakarte.me/https/heatmap-external-${server}.strava.com/tiles-auth/all/hot/${z}/${x}/${y}.png?px=256`;
 
             try {
-                // Petición a través de un proxy CORS abierto para respetar el Referer o petición directa
-                const response = await fetch(`https://corsproxy.io/?` + encodeURIComponent(targetUrl), {
+                const response = await fetch(targetUrl, {
                     signal: abortController.signal,
                     headers: {
-                        "X-Requested-With": "OtroMundo-OruxParser"
+                        "Referer": "https://nakarte.me/"
                     }
                 });
 
@@ -81,7 +48,7 @@ const StravaHeatmapManager = {
                 if (err.name === "AbortError") throw err;
             }
 
-            // PNG transparente de 1x1 píxel por defecto si la tesela no responde
+            // PNG transparente de 1x1 píxel por defecto si la tesela está vacía
             const emptyPngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
             const binary = atob(emptyPngBase64);
             const bytes = new Uint8Array(binary.length);
@@ -112,7 +79,7 @@ const StravaHeatmapManager = {
             <div id="strava-toggle-row" style="display: flex; align-items: center; justify-content: space-between; cursor: pointer;">
                 <div style="display: flex; flex-direction: column; gap: 2px;">
                     <span style="font-size: 0.88rem; font-weight: bold; color: #fc4c02;">🔥 Mapa de Calor Strava</span>
-                    <span style="font-size: 0.72rem; color: #bbb;">Parser XML OruxMaps (uid="2001")</span>
+                    <span style="font-size: 0.72rem; color: #bbb;">Nakarte tiles-auth (All / Hot)</span>
                 </div>
                 <label class="switch" style="pointer-events: none;">
                     <input type="checkbox" id="toggle-strava-heatmap">
@@ -144,10 +111,10 @@ const StravaHeatmapManager = {
 
             if (this.isEnabled) {
                 this.addOrUpdateLayer();
-                window.RoutePlanner?.showToast?.("Capa Strava XML activada");
+                window.RoutePlanner?.showToast?.("Mapa de calor Strava activado");
             } else {
                 this.removeLayer();
-                window.RoutePlanner?.showToast?.("Capa Strava desactivada");
+                window.RoutePlanner?.showToast?.("Mapa de calor Strava desactivado");
             }
         });
 
@@ -196,7 +163,7 @@ const StravaHeatmapManager = {
 
         this.removeLayer();
 
-        const tileUrl = `orux-xml-strava://{z}/{x}/{y}`;
+        const tileUrl = `nakarte-strava://{z}/{x}/{y}`;
 
         mapObj.addSource(this.sourceId, {
             type: "raster",
@@ -204,7 +171,7 @@ const StravaHeatmapManager = {
             tileSize: 256,
             minzoom: 1,
             maxzoom: 16,
-            attribution: "© Strava OruxMaps XML (uid=2001)"
+            attribution: "© Strava Heatmap (Nakarte tiles-auth)"
         });
 
         const beforeId = this.getBeforeLayerId(mapObj);
