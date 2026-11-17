@@ -8,17 +8,21 @@ const RouteExporter = {
         this.setupEvents();
     },
 
-    // Detecta si el dispositivo es Android o iOS (incluyendo iPadOS moderno)
-    isMobileOS() {
-        const ua = navigator.userAgent || navigator.vendor || window.opera || "";
-        const isAndroid = /android/i.test(ua);
-        const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-        return isAndroid || isIOS;
+    // Detección robusta de dispositivos móviles/tablets (Android, iOS, iPadOS)
+    isMobileOrTablet() {
+        const ua = (navigator.userAgent || navigator.vendor || window.opera || "").toLowerCase();
+        const platform = (navigator.userAgentData?.platform || navigator.platform || "").toLowerCase();
+
+        const isAndroid = /android/.test(ua) || /android/.test(platform) || (/linux/.test(platform) && navigator.maxTouchPoints > 0);
+        const isIOS = /iphone|ipad|ipod/.test(ua) || /iphone|ipad|ipod/.test(platform) || (platform === 'macintel' && navigator.maxTouchPoints > 1);
+        const isCoarsePointer = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+
+        return isAndroid || isIOS || isCoarsePointer;
     },
 
     // Inyecta dinámicamente el botón "Abrir en OruxMaps" junto al botón de descarga en Android/iOS
     injectOruxOpenButton() {
-        if (!this.isMobileOS()) return;
+        if (!this.isMobileOrTablet()) return;
 
         const btnDownload = document.getElementById("opt-btn-download-file");
         if (!btnDownload || document.getElementById("opt-btn-open-orux")) return;
@@ -45,7 +49,7 @@ const RouteExporter = {
         btnOrux.type = "button";
         btnOrux.title = "Abrir directamente en OruxMaps (orux-track://)";
         btnOrux.style.cssText = `
-            flex: 1.15;
+            flex: 1.2;
             min-width: 0;
             background: #000000;
             color: #ff3b30;
@@ -138,6 +142,8 @@ const RouteExporter = {
         if (!params) return;
 
         const { planner, format, filename } = params;
+        
+        // Generamos siempre el archivo íntegro de OtroMundo (con nombres de waypoints, colores y tramos mixtos)
         const content = format === 'kml'
             ? this.buildKmlHierarchical(filename, planner)
             : this.buildGpx(filename, planner);
@@ -158,64 +164,48 @@ const RouteExporter = {
         const btnOrux = document.getElementById("opt-btn-open-orux");
         const originalHTML = btnOrux ? btnOrux.innerHTML : "";
 
-        // 1. Comprobar si todos los tramos usan el mismo perfil BRouter (sin tramos rectos manuales)
-        // En ese caso podemos pasar directamente la URL oficial de BRouter con format=gpx o format=kml,
-        // que OruxMaps (tanto Android como iOS) entiende de forma nativa sin intermediarios.
-        const firstProfile = planner.segments?.[0]?.profile || planner.profile;
-        const allSameBRouter = planner.points.length >= 2 &&
-            firstProfile !== "manual-straight" &&
-            planner.segments.every(s => s.profile === firstProfile);
-
-        if (allSameBRouter) {
-            const lonlatsStr = planner.points.map(p => `${p.coords[0]},${p.coords[1]}`).join('|');
-            const brouterFormat = format === 'kml' ? 'kml' : 'gpx';
-            const brouterOruxUrl = `orux-track://brouter.de/brouter?lonlats=${lonlatsStr}&profile=${firstProfile}&alternativeidx=${planner.currentRouteIndex || 0}&format=${brouterFormat}`;
-
-            if (planner && typeof planner.showToast === 'function') {
-                planner.showToast(`Abriendo ${brouterFormat.toUpperCase()} en OruxMaps...`);
-            }
-            document.getElementById("side-panel-planner-options")?.classList.remove("active");
-            window.location.href = brouterOruxUrl;
-            return;
-        }
-
-        // 2. Si la ruta es mixta (contiene tramos punto a punto manuales o perfiles mezclados),
-        // subimos el archivo puro (.gpx o .kml) a un hosting directo sin redirecciones HTML
         if (btnOrux) {
             btnOrux.disabled = true;
-            btnOrux.innerHTML = `<span>Preparando...</span>`;
+            btnOrux.innerHTML = `<span>Enviando...</span>`;
         }
         if (planner && typeof planner.showToast === 'function') {
-            planner.showToast(`Enviando ${format.toUpperCase()} mixto a OruxMaps...`);
+            planner.showToast(`Preparando ${filename} para OruxMaps...`);
         }
 
         try {
+            // Alojamos el archivo exacto generado por OtroMundo (.kml o .gpx) en Litterbox (1h temporal)
+            // Devuelve una URL directa https://litter.catbox.moe/xxxxxx.kml (o .gpx) terminada en la extensión real,
+            // conservando al 100% los nombres de puntos, colores de tramos y segmentos rectos.
             const formData = new FormData();
+            formData.append("reqtype", "fileupload");
+            formData.append("time", "1h");
             const fileBlob = new Blob([content], { type: mimeType });
-            formData.append("files[]", fileBlob, filename);
+            formData.append("fileToUpload", fileBlob, filename);
 
-            const response = await fetch("https://uguu.se/upload", {
+            const response = await fetch("https://litterbox.catbox.moe/resources/internals/api.php", {
                 method: "POST",
                 body: formData
             });
 
-            if (!response.ok) throw new Error("Fallo al alojar archivo temporal");
+            if (!response.ok) throw new Error("Fallo al preparar el archivo temporal");
 
-            const result = await response.json();
-            const directHttpsUrl = result?.files?.[0]?.url;
-            if (!directHttpsUrl) throw new Error("URL directa no recibida");
+            const directHttpsUrl = (await response.text()).trim();
+            if (!directHttpsUrl.startsWith("http")) {
+                throw new Error("URL temporal no válida");
+            }
 
-            // La URL de uguu.se termina literalmente en .gpx o .kml y devuelve XML puro
+            // Convertimos https://... -> orux-track://... para que OruxMaps lo descargue y abra en pantalla
             const oruxTrackDeepLink = directHttpsUrl.replace(/^https?:\/\//i, "orux-track://");
 
             document.getElementById("side-panel-planner-options")?.classList.remove("active");
             window.location.href = oruxTrackDeepLink;
 
         } catch (err) {
-            console.warn("Fallo en enlace directo para ruta mixta, descargando archivo local:", err);
+            console.warn("No se pudo generar el enlace temporal, descargando archivo local:", err);
             if (planner && typeof planner.showToast === 'function') {
                 planner.showToast("Descargando archivo para abrir en OruxMaps...");
             }
+            document.getElementById("side-panel-planner-options")?.classList.remove("active");
             this.triggerBlobDownload(content, filename, mimeType);
         } finally {
             if (btnOrux) {
@@ -239,6 +229,7 @@ const RouteExporter = {
         kml += `<Document>\n`;
         kml += `  <name><![CDATA[${filename.replace('.kml', '')}]]></name>\n`;
 
+        // Carpeta 1: Waypoints
         if (planner.points && planner.points.length > 0) {
             kml += `  <Folder>\n`;
             kml += `    <name><![CDATA[Waypoints de Ruta]]></name>\n`;
@@ -254,6 +245,7 @@ const RouteExporter = {
             kml += `  </Folder>\n`;
         }
 
+        // Carpeta 2: Traza mixta desglosada por Segmentos
         if (planner.segments && planner.segments.length > 0 && planner.points.length >= 2) {
             kml += `  <Folder>\n`;
             kml += `    <name><![CDATA[Traza de Ruta (Mixta)]]></name>\n`;
@@ -308,6 +300,7 @@ const RouteExporter = {
         gpx += `    <time>${new Date().toISOString()}</time>\n`;
         gpx += `  </metadata>\n`;
 
+        // Waypoints
         if (planner.points && planner.points.length > 0) {
             planner.points.forEach((p, idx) => {
                 gpx += `  <wpt lat="${p.coords[1]}" lon="${p.coords[0]}">\n`;
@@ -317,9 +310,10 @@ const RouteExporter = {
             });
         }
 
+        // Track unificado combinando todos los segmentos (BRouter y manuales)
         if (planner.segments && planner.segments.length > 0 && planner.points.length >= 2) {
             gpx += `  <trk>\n`;
-            gpx += `    <name><![CDATA[Ruta Mixta Otromundo]]></name>\n`;
+            gpx += `    <name><![CDATA[${filename.replace('.gpx', '')}]]></name>\n`;
             gpx += `    <trkseg>\n`;
 
             planner.segments.forEach((seg, sIdx) => {
