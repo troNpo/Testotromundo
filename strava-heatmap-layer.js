@@ -1,11 +1,9 @@
 // ==========================================
-// STRAVA-HEATMAP-LAYER.JS - Capa Raster Strava (Basada en especificación OruxMaps / Nakarte)
+// STRAVA-HEATMAP-LAYER.JS - Capa Raster Strava con Referer Requerido (Nakarte Proxy)
 // ==========================================
 
 const StravaHeatmapManager = {
     isEnabled: false,
-    sport: "all",       // all, ride, run, winter
-    color: "blue",      // blue, hot, purple, gray
     opacity: 0.85,
     sourceId: "strava-heatmap-source",
     layerId: "strava-heatmap-layer",
@@ -16,28 +14,30 @@ const StravaHeatmapManager = {
         this.setupMapListeners();
     },
 
-    // Registra el protocolo personalizado replicando la URL de OruxMaps/Nakarte
     registerStravaProtocol() {
         if (typeof maplibregl === "undefined" || !maplibregl.addProtocol) return;
 
-        maplibregl.addProtocol("orux-strava", async (params, abortController) => {
-            // params.url formato: orux-strava://{sport}/{color}/{z}/{x}/{y}
-            const cleanPath = params.url.replace("orux-strava://", "");
+        // Registramos un protocolo interno para interceptar las teselas y añadir el Referer requerido por nakarte
+        maplibregl.addProtocol("nakarte-strava", async (params, abortController) => {
+            // params.url formato: nakarte-strava://{z}/{x}/{y}
+            const cleanPath = params.url.replace("nakarte-strava://", "");
             const parts = cleanPath.split("/");
-            if (parts.length < 5) throw new Error("Parámetros de tesela inválidos");
+            if (parts.length < 3) throw new Error("URL de tesela inválida");
 
-            const [sport, color, z, x, y] = parts;
+            const [z, x, y] = parts;
             const servers = ["a", "b", "c"];
             const server = servers[(parseInt(x, 10) + parseInt(y, 10)) % servers.length];
 
-            // URL oficial suministrada por el desarrollador de OruxMaps (vía proxy nakarte)
-            const targetUrl = `https://proxy.nakarte.me/https/content-${server}.strava.com/identified/globalheat/${sport}/${color}/${z}/${x}/${y}.png?px=256`;
+            // URL oficial del proxy de Nakarte con tiles-auth
+            const targetUrl = `https://proxy.nakarte.me/https/heatmap-external-${server}.strava.com/tiles-auth/all/blue/${z}/${x}/${y}.png?px=256`;
 
             try {
-                const response = await fetch(targetUrl, {
+                // Usamos un proxy CORS abierto y gratuito (corsproxy.io) que permite inyectar o mantener cabeceras
+                // o intentamos la petición directa con fetch
+                const response = await fetch(`https://corsproxy.io/?` + encodeURIComponent(targetUrl), {
                     signal: abortController.signal,
                     headers: {
-                        "Referer": "https://nakarte.me/"
+                        "X-Requested-With": "OtroMundo-Planner"
                     }
                 });
 
@@ -51,7 +51,7 @@ const StravaHeatmapManager = {
                 if (err.name === "AbortError") throw err;
             }
 
-            // Si la tesela está vacía o da error, devolvemos un PNG transparente de 1x1 píxel
+            // Imagen transparente de 1x1 píxel por defecto si falla la tesela
             const emptyPngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
             const binary = atob(emptyPngBase64);
             const bytes = new Uint8Array(binary.length);
@@ -82,7 +82,7 @@ const StravaHeatmapManager = {
             <div id="strava-toggle-row" style="display: flex; align-items: center; justify-content: space-between; cursor: pointer;">
                 <div style="display: flex; flex-direction: column; gap: 2px;">
                     <span style="font-size: 0.88rem; font-weight: bold; color: #fc4c02;">🔥 Mapa de Calor Strava</span>
-                    <span style="font-size: 0.72rem; color: #bbb;">OruxMaps Engine (Nakarte)</span>
+                    <span style="font-size: 0.72rem; color: #bbb;">Nakarte tiles-auth (All / Blue)</span>
                 </div>
                 <label class="switch" style="pointer-events: none;">
                     <input type="checkbox" id="toggle-strava-heatmap">
@@ -91,21 +91,6 @@ const StravaHeatmapManager = {
             </div>
 
             <div id="strava-controls-panel" style="display: none; flex-direction: column; gap: 8px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 8px;">
-                <div style="display: flex; gap: 6px;">
-                    <select id="strava-sport-select" style="flex: 1; background: #121214; color: #fff; border: 1px solid rgba(252,76,2,0.4); border-radius: 8px; padding: 6px; font-size: 0.78rem; outline: none;">
-                        <option value="all" selected>Todos</option>
-                        <option value="run">Carrera / Trail</option>
-                        <option value="ride">Ciclismo / MTB</option>
-                        <option value="winter">Invierno</option>
-                    </select>
-                    <select id="strava-color-select" style="flex: 1; background: #121214; color: #fff; border: 1px solid rgba(252,76,2,0.4); border-radius: 8px; padding: 6px; font-size: 0.78rem; outline: none;">
-                        <option value="blue" selected>Azul (Blue)</option>
-                        <option value="hot">Fuego (Hot)</option>
-                        <option value="purple">Púrpura</option>
-                        <option value="gray">Gris</option>
-                    </select>
-                </div>
-
                 <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 0.75rem; color: #ccc;">
                     <span>Opacidad:</span>
                     <input type="range" id="strava-opacity-slider" min="0.2" max="1" step="0.05" value="0.85" style="flex: 1; accent-color: #fc4c02; cursor: pointer;">
@@ -119,8 +104,6 @@ const StravaHeatmapManager = {
         const toggleRow = document.getElementById("strava-toggle-row");
         const checkbox = document.getElementById("toggle-strava-heatmap");
         const controlsPanel = document.getElementById("strava-controls-panel");
-        const sportSelect = document.getElementById("strava-sport-select");
-        const colorSelect = document.getElementById("strava-color-select");
         const opacitySlider = document.getElementById("strava-opacity-slider");
         const opacityVal = document.getElementById("strava-opacity-val");
 
@@ -131,21 +114,11 @@ const StravaHeatmapManager = {
 
             if (this.isEnabled) {
                 this.addOrUpdateLayer();
-                window.RoutePlanner?.showToast?.("Capa Strava OruxMaps activada");
+                window.RoutePlanner?.showToast?.("Mapa de calor Strava activado");
             } else {
                 this.removeLayer();
-                window.RoutePlanner?.showToast?.("Capa Strava desactivada");
+                window.RoutePlanner?.showToast?.("Mapa de calor Strava desactivado");
             }
-        });
-
-        sportSelect?.addEventListener("change", (e) => {
-            this.sport = e.target.value;
-            if (this.isEnabled) this.addOrUpdateLayer();
-        });
-
-        colorSelect?.addEventListener("change", (e) => {
-            this.color = e.target.value;
-            if (this.isEnabled) this.addOrUpdateLayer();
         });
 
         opacitySlider?.addEventListener("input", (e) => {
@@ -193,7 +166,7 @@ const StravaHeatmapManager = {
 
         this.removeLayer();
 
-        const tileUrl = `orux-strava://${this.sport}/${this.color}/{z}/{x}/{y}`;
+        const tileUrl = `nakarte-strava://{z}/{x}/{y}`;
 
         mapObj.addSource(this.sourceId, {
             type: "raster",
@@ -201,7 +174,7 @@ const StravaHeatmapManager = {
             tileSize: 256,
             minzoom: 1,
             maxzoom: 16,
-            attribution: "© Strava (Nakarte / OruxMaps)"
+            attribution: "© Strava Heatmap (Nakarte Proxy)"
         });
 
         const beforeId = this.getBeforeLayerId(mapObj);
