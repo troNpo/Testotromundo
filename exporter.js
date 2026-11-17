@@ -50,7 +50,7 @@ const RouteExporter = {
 
         setTimeout(() => {
             toast.remove();
-        }, 3200);
+        }, 3000);
     },
 
     // Inyecta dinámicamente el botón "Abrir en OruxMaps" junto al botón de descarga en Android/iOS
@@ -197,38 +197,49 @@ const RouteExporter = {
             btnOrux.disabled = true;
             btnOrux.innerHTML = `<span>Enviando...</span>`;
         }
-        this.showExportNotice(`Abriendo ${filename} en OruxMaps...`);
+        this.showExportNotice(`Preparando ${filename} para OruxMaps...`);
 
         try {
-            // Subimos el archivo a tmpfiles.org (CORS abierto en Safari iOS y Chrome Android)
-            // y transformamos la URL a descarga directa (/dl/) terminada literalmente en .kml o .gpx
-            const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
-            const formData = new FormData();
-            const fileBlob = new Blob([content], { type: mimeType });
-            formData.append("file", fileBlob, safeFilename);
-
-            const response = await fetch("https://tmpfiles.org/api/v1/upload", {
+            // paste.rs acepta texto plano por POST con CORS abierto y devuelve una URL directa (ej. https://paste.rs/abc12)
+            // Añadiendo .kml o .gpx al final (https://paste.rs/abc12.kml) devuelve el XML puro sin bloquear OruxMaps iOS/Android.
+            const response = await fetch("https://paste.rs/", {
                 method: "POST",
-                body: formData
+                body: content
             });
 
-            if (!response.ok) throw new Error("Fallo en servidor temporal");
+            if (!response.ok) throw new Error("Fallo al preparar el enlace temporal");
 
-            const result = await response.json();
-            const rawUrl = result?.data?.url;
-            if (!rawUrl) throw new Error("URL no recibida");
+            const basePasteUrl = (await response.text()).trim().replace(/\/+$/, "");
+            if (!basePasteUrl.startsWith("http")) {
+                throw new Error("URL temporal no válida");
+            }
 
-            // Convertir https://tmpfiles.org/12345/ruta.kml -> https://tmpfiles.org/dl/12345/ruta.kml
-            // El segmento /dl/ sirve el XML puro sin página HTML intermedia ni redirecciones.
-            const directDownloadUrl = rawUrl.replace(/^https?:\/\/tmpfiles\.org\//i, "https://tmpfiles.org/dl/");
-            const oruxTrackDeepLink = directDownloadUrl.replace(/^https?:\/\//i, "orux-track://");
+            // Construimos https://paste.rs/xxxxx.kml (o .gpx) -> orux-track://paste.rs/xxxxx.kml
+            const directFileUrl = `${basePasteUrl}.${format}`;
+            const oruxTrackDeepLink = directFileUrl.replace(/^https?:\/\//i, "orux-track://");
 
             document.getElementById("side-panel-planner-options")?.classList.remove("active");
             window.location.href = oruxTrackDeepLink;
 
         } catch (err) {
-            console.error("Error al generar deep link orux-track://:", err);
-            this.showExportNotice("No se pudo conectar para enlace directo. Descargando archivo...", true);
+            console.warn("No se pudo generar el enlace orux-track://, intentando compartir archivo nativo:", err);
+
+            // Plan B nativo en iOS/Android: hoja de compartir archivo real (.kml / .gpx) con OruxMaps
+            try {
+                const fileObj = new File([content], filename, { type: mimeType });
+                if (navigator.canShare && navigator.canShare({ files: [fileObj] })) {
+                    document.getElementById("side-panel-planner-options")?.classList.remove("active");
+                    await navigator.share({
+                        files: [fileObj],
+                        title: filename
+                    });
+                    return;
+                }
+            } catch (shareErr) {
+                console.warn("Compartir nativo cancelado o no disponible:", shareErr);
+            }
+
+            this.showExportNotice("Descargando archivo para abrir en OruxMaps...");
             document.getElementById("side-panel-planner-options")?.classList.remove("active");
             this.triggerBlobDownload(content, filename, mimeType);
         } finally {
@@ -386,6 +397,3 @@ const RouteExporter = {
 document.addEventListener("DOMContentLoaded", () => {
     RouteExporter.init();
 });
-```eof
-
-He eliminado el cajón de compartir para ir directo a `orux-track://tmpfiles.org/dl/.../archivo.kml` (con `/dl/`, que entrega el XML puro sin página HTML y con CORS compatible en Safari iOS y Android). ¡Pruébalo ahora!
