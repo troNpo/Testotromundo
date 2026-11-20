@@ -1,5 +1,5 @@
 // ==========================================
-// EXPORTER.JS - Gestor Avanzado de Exportación (KML jerárquico, GPX mixto y Apertura Directa orux-track://)
+// EXPORTER.JS - Gestor Avanzado de Exportación (KML jerárquico con estilos dasharray, GPX mixto y orux-track://)
 // ==========================================
 
 const RouteExporter = {
@@ -8,7 +8,6 @@ const RouteExporter = {
         this.setupEvents();
     },
 
-    // Detección robusta de dispositivos móviles/tablets (Android, iOS, iPadOS)
     isMobileOrTablet() {
         const ua = (navigator.userAgent || navigator.vendor || window.opera || "").toLowerCase();
         const platform = (navigator.userAgentData?.platform || navigator.platform || "").toLowerCase();
@@ -20,7 +19,6 @@ const RouteExporter = {
         return isAndroid || isIOS || isCoarsePointer;
     },
 
-    // Aviso flotante visible incluso con los paneles laterales abiertos
     showExportNotice(message, isError = false) {
         document.getElementById("exporter-floating-toast")?.remove();
 
@@ -53,7 +51,6 @@ const RouteExporter = {
         }, 3000);
     },
 
-    // Inyecta dinámicamente el botón "Abrir en OruxMaps" junto al botón de descarga en Android/iOS
     injectOruxOpenButton() {
         if (!this.isMobileOrTablet()) return;
 
@@ -97,7 +94,6 @@ const RouteExporter = {
             justify-content: center;
             gap: 6px;
             box-shadow: 0 4px 12px rgba(255, 59, 48, 0.25);
-            transition: transform 0.15s ease, background 0.15s ease;
         `;
 
         btnOrux.innerHTML = `
@@ -136,21 +132,17 @@ const RouteExporter = {
                 this.executeExport(true);
             });
         }
-
-        const detailsEl = document.getElementById("export-accordion");
-        detailsEl?.addEventListener("toggle", () => {
-            const arrow = document.getElementById("export-accordion-arrow");
-            if (arrow) {
-                arrow.style.transform = detailsEl.open ? "rotate(180deg)" : "rotate(0deg)";
-            }
-        });
     },
 
     getExportParams() {
         const planner = window.RoutePlanner || (typeof RoutePlanner !== 'undefined' ? RoutePlanner : null);
+        const poiMgr = window.PoiManager || (typeof PoiManager !== 'undefined' ? PoiManager : null);
 
-        if (!planner || ((!planner.points || planner.points.length === 0) && !planner.currentRouteData)) {
-            this.showExportNotice("⚠️ No hay ruta ni puntos para exportar", true);
+        const hasRouteOrPoints = planner && ((planner.points && planner.points.length > 0) || planner.currentRouteData);
+        const hasPois = poiMgr && Array.isArray(poiMgr.pois) && poiMgr.pois.length > 0;
+
+        if (!hasRouteOrPoints && !hasPois) {
+            this.showExportNotice("⚠️ No hay ruta, puntos ni POIs para exportar", true);
             return null;
         }
 
@@ -163,7 +155,7 @@ const RouteExporter = {
         let filename = inputNombre && inputNombre.value.trim() ? inputNombre.value.trim() : `otromundo_ruta.${format}`;
         if (!filename.endsWith(`.${format}`)) filename += `.${format}`;
 
-        return { planner, format, filename };
+        return { planner: planner || {}, format, filename };
     },
 
     async executeExport(openInOrux = false) {
@@ -200,8 +192,6 @@ const RouteExporter = {
         this.showExportNotice(`Preparando ${filename} para OruxMaps...`);
 
         try {
-            // paste.rs acepta texto plano por POST con CORS abierto y devuelve una URL directa (ej. https://paste.rs/abc12)
-            // Añadiendo .kml o .gpx al final (https://paste.rs/abc12.kml) devuelve el XML puro sin bloquear OruxMaps iOS/Android.
             const response = await fetch("https://paste.rs/", {
                 method: "POST",
                 body: content
@@ -214,7 +204,6 @@ const RouteExporter = {
                 throw new Error("URL temporal no válida");
             }
 
-            // Construimos https://paste.rs/xxxxx.kml (o .gpx) -> orux-track://paste.rs/xxxxx.kml
             const directFileUrl = `${basePasteUrl}.${format}`;
             const oruxTrackDeepLink = directFileUrl.replace(/^https?:\/\//i, "orux-track://");
 
@@ -223,8 +212,6 @@ const RouteExporter = {
 
         } catch (err) {
             console.warn("No se pudo generar el enlace orux-track://, intentando compartir archivo nativo:", err);
-
-            // Plan B nativo en iOS/Android: hoja de compartir archivo real (.kml / .gpx) con OruxMaps
             try {
                 const fileObj = new File([content], filename, { type: mimeType });
                 if (navigator.canShare && navigator.canShare({ files: [fileObj] })) {
@@ -235,9 +222,7 @@ const RouteExporter = {
                     });
                     return;
                 }
-            } catch (shareErr) {
-                console.warn("Compartir nativo cancelado o no disponible:", shareErr);
-            }
+            } catch (shareErr) {}
 
             this.showExportNotice("Descargando archivo para abrir en OruxMaps...");
             document.getElementById("side-panel-planner-options")?.classList.remove("active");
@@ -264,7 +249,23 @@ const RouteExporter = {
         kml += `<Document>\n`;
         kml += `  <name><![CDATA[${filename.replace('.kml', '')}]]></name>\n`;
 
-        // Carpeta 1: Waypoints
+        // Definición de Estilos KML de los tramos de ruta
+        if (planner.segments && planner.segments.length > 0) {
+            planner.segments.forEach((seg, sIdx) => {
+                const isManual = seg.profile === "manual-straight";
+                const styleId = `seg_style_${sIdx}`;
+                const kmlColor = this.hexToKmlColor(seg.color || '#00e5ff');
+
+                kml += `  <Style id="${styleId}">\n`;
+                kml += `    <LineStyle>\n`;
+                kml += `      <color>${kmlColor}</color>\n`;
+                kml += `      <width>${isManual ? 3.5 : 4}</width>\n`;
+                kml += `    </LineStyle>\n`;
+                kml += `  </Style>\n`;
+            });
+        }
+
+        // Carpeta 1: Waypoints de Ruta
         if (planner.points && planner.points.length > 0) {
             kml += `  <Folder>\n`;
             kml += `    <name><![CDATA[Waypoints de Ruta]]></name>\n`;
@@ -280,8 +281,8 @@ const RouteExporter = {
             kml += `  </Folder>\n`;
         }
 
-        // Carpeta 2: Traza mixta desglosada por Segmentos
-        if (planner.segments && planner.segments.length > 0 && planner.points.length >= 2) {
+        // Carpeta 2: Traza desglosada por Segmentos
+        if (planner.segments && planner.segments.length > 0 && planner.points && planner.points.length >= 2) {
             kml += `  <Folder>\n`;
             kml += `    <name><![CDATA[Traza de Ruta (Mixta)]]></name>\n`;
 
@@ -297,18 +298,15 @@ const RouteExporter = {
 
                 const segName = seg.name || `Tramo ${sIdx + 1} (${isManual ? 'Punto a punto' : 'BRouter'})`;
                 const styleId = `seg_style_${sIdx}`;
-                const kmlColor = this.hexToKmlColor(seg.color || '#00e5ff');
-
-                kml += `    <Style id="${styleId}">\n`;
-                kml += `      <LineStyle>\n`;
-                kml += `        <color>${kmlColor}</color>\n`;
-                kml += `        <width>4</width>\n`;
-                kml += `      </LineStyle>\n`;
-                kml += `    </Style>\n`;
 
                 kml += `    <Placemark>\n`;
                 kml += `      <name><![CDATA[${segName}]]></name>\n`;
                 kml += `      <styleUrl>#${styleId}</styleUrl>\n`;
+                if (isManual) {
+                    kml += `      <ExtendedData>\n`;
+                    kml += `        <Data name="dasharray"><value>3,3</value></Data>\n`;
+                    kml += `      </ExtendedData>\n`;
+                }
                 kml += `      <LineString>\n`;
                 kml += `        <tessellate>1</tessellate>\n`;
                 kml += `        <coordinates>\n`;
@@ -335,7 +333,6 @@ const RouteExporter = {
         gpx += `    <time>${new Date().toISOString()}</time>\n`;
         gpx += `  </metadata>\n`;
 
-        // Waypoints
         if (planner.points && planner.points.length > 0) {
             planner.points.forEach((p, idx) => {
                 gpx += `  <wpt lat="${p.coords[1]}" lon="${p.coords[0]}">\n`;
@@ -345,8 +342,7 @@ const RouteExporter = {
             });
         }
 
-        // Track unificado combinando todos los segmentos (BRouter y manuales)
-        if (planner.segments && planner.segments.length > 0 && planner.points.length >= 2) {
+        if (planner.segments && planner.segments.length > 0 && planner.points && planner.points.length >= 2) {
             gpx += `  <trk>\n`;
             gpx += `    <name><![CDATA[${filename.replace('.gpx', '')}]]></name>\n`;
             gpx += `    <trkseg>\n`;
@@ -394,6 +390,7 @@ const RouteExporter = {
     }
 };
 
+window.RouteExporter = RouteExporter;
 document.addEventListener("DOMContentLoaded", () => {
     RouteExporter.init();
 });
