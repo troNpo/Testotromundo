@@ -1,0 +1,15 @@
+<onlinemapsources>
+    <onlinemapsource uid="2001">
+        <name>🌐 Strava All Blue (STRAVA)</name>
+        <url><![CDATA[https://proxy.nakarte.me/https/content-{$s}.strava.com/identified/globalheat/all/blue/{$z}/{$x}/{$y}.png?px=256]]></url>
+        <website><![CDATA[<font color="#000000">©Strava All Blue</font>]]></website>
+        <minzoom>1</minzoom>
+        <maxzoom>16</maxzoom>
+        <servers>a,b,c</servers>
+        <projection>MERCATORESFERICA</projection>
+        <httpparam name="User-Agent">{om}</httpparam>
+        <httpparam name="Referer">https://nakarte.me/</httpparam>
+        <cacheable>1</cacheable>
+        <downloadable>1</downloadable>
+    </onlinemapsource>
+</onlinemapsources>
