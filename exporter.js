@@ -19,6 +19,12 @@ const RouteExporter = {
         return isAndroid || isIOS || isCoarsePointer;
     },
 
+    isAndroidDevice() {
+        const ua = (navigator.userAgent || "").toLowerCase();
+        const platform = (navigator.userAgentData?.platform || navigator.platform || "").toLowerCase();
+        return /android/.test(ua) || /android/.test(platform) || (/linux/.test(platform) && navigator.maxTouchPoints > 0);
+    },
+
     showExportNotice(message, isError = false) {
         document.getElementById("exporter-floating-toast")?.remove();
 
@@ -48,7 +54,7 @@ const RouteExporter = {
 
         setTimeout(() => {
             toast.remove();
-        }, 3000);
+        }, 3200);
     },
 
     injectOruxOpenButton() {
@@ -181,50 +187,82 @@ const RouteExporter = {
         await this.openDirectInOruxMaps(content, filename, format, mimeType);
     },
 
+    // Sube temporalmente el archivo a un host compatible con CORS en navegador para generar una URL directa
+    async uploadTempTrackForOrux(content, filename, mimeType) {
+        const blob = new Blob([content], { type: mimeType });
+
+        // 1. Intento principal: tmpfiles.org (soporta CORS y devuelve enlace directo de descarga)
+        try {
+            const fd = new FormData();
+            fd.append("file", blob, filename);
+            const res = await fetch("https://tmpfiles.org/api/v1/upload", {
+                method: "POST",
+                body: fd
+            });
+            if (res.ok) {
+                const json = await res.json();
+                const pageUrl = json?.data?.url;
+                if (typeof pageUrl === "string" && pageUrl.includes("tmpfiles.org/")) {
+                    // Convertir URL de vista en URL directa de descarga: https://tmpfiles.org/dl/ID/archivo.kml
+                    return pageUrl.replace(/^https?:\/\/tmpfiles\.org\//i, "https://tmpfiles.org/dl/");
+                }
+            }
+        } catch (e) {
+            console.warn("tmpfiles.org no disponible:", e);
+        }
+
+        // 2. Respaldo: file.io (soporta CORS desde navegador)
+        try {
+            const fd = new FormData();
+            fd.append("file", blob, filename);
+            const res = await fetch("https://file.io/?expires=1d", {
+                method: "POST",
+                body: fd
+            });
+            if (res.ok) {
+                const json = await res.json();
+                if (json?.success && typeof json?.link === "string") {
+                    return json.link;
+                }
+            }
+        } catch (e) {
+            console.warn("file.io no disponible:", e);
+        }
+
+        throw new Error("No se pudo generar el enlace temporal para OruxMaps");
+    },
+
+    launchDeepLink(url) {
+        const a = document.createElement("a");
+        a.href = url;
+        a.style.display = "none";
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+            a.remove();
+        }, 150);
+    },
+
     async openDirectInOruxMaps(content, filename, format, mimeType) {
         const btnOrux = document.getElementById("opt-btn-open-orux");
         const originalHTML = btnOrux ? btnOrux.innerHTML : "";
 
         if (btnOrux) {
             btnOrux.disabled = true;
-            btnOrux.innerHTML = `<span>Enviando...</span>`;
+            btnOrux.innerHTML = `<span>Abriendo...</span>`;
         }
-        this.showExportNotice(`Preparando ${filename} para OruxMaps...`);
+        this.showExportNotice(`Enviando ${filename} directo a OruxMaps...`);
 
         try {
-            const response = await fetch("https://paste.rs/", {
-                method: "POST",
-                body: content
-            });
-
-            if (!response.ok) throw new Error("Fallo al preparar el enlace temporal");
-
-            const basePasteUrl = (await response.text()).trim().replace(/\/+$/, "");
-            if (!basePasteUrl.startsWith("http")) {
-                throw new Error("URL temporal no válida");
-            }
-
-            const directFileUrl = `${basePasteUrl}.${format}`;
-            const oruxTrackDeepLink = directFileUrl.replace(/^https?:\/\//i, "orux-track://");
+            const directHttpUrl = await this.uploadTempTrackForOrux(content, filename, mimeType);
+            const oruxTrackDeepLink = directHttpUrl.replace(/^https?:\/\//i, "orux-track://");
 
             document.getElementById("side-panel-planner-options")?.classList.remove("active");
-            window.location.href = oruxTrackDeepLink;
+            this.launchDeepLink(oruxTrackDeepLink);
 
         } catch (err) {
-            console.warn("No se pudo generar el enlace orux-track://, intentando compartir archivo nativo:", err);
-            try {
-                const fileObj = new File([content], filename, { type: mimeType });
-                if (navigator.canShare && navigator.canShare({ files: [fileObj] })) {
-                    document.getElementById("side-panel-planner-options")?.classList.remove("active");
-                    await navigator.share({
-                        files: [fileObj],
-                        title: filename
-                    });
-                    return;
-                }
-            } catch (shareErr) {}
-
-            this.showExportNotice("Descargando archivo para abrir en OruxMaps...");
+            console.warn("Fallo al abrir mediante enlace directo orux-track://:", err);
+            this.showExportNotice("⚠️ No se pudo conectar con el servidor puente; descargando archivo...", true);
             document.getElementById("side-panel-planner-options")?.classList.remove("active");
             this.triggerBlobDownload(content, filename, mimeType);
         } finally {
