@@ -19,12 +19,6 @@ const RouteExporter = {
         return isAndroid || isIOS || isCoarsePointer;
     },
 
-    isAndroidDevice() {
-        const ua = (navigator.userAgent || "").toLowerCase();
-        const platform = (navigator.userAgentData?.platform || navigator.platform || "").toLowerCase();
-        return /android/.test(ua) || /android/.test(platform) || (/linux/.test(platform) && navigator.maxTouchPoints > 0);
-    },
-
     showExportNotice(message, isError = false) {
         document.getElementById("exporter-floating-toast")?.remove();
 
@@ -83,28 +77,28 @@ const RouteExporter = {
         const btnOrux = document.createElement("button");
         btnOrux.id = "opt-btn-open-orux";
         btnOrux.type = "button";
-        btnOrux.title = "Abrir directamente en OruxMaps (orux-track://)";
+        btnOrux.title = "Compartir archivo de ruta (OruxMaps, mensajería, Archivos...)";
         btnOrux.style.cssText = `
             flex: 1.2;
             min-width: 0;
-            background: #000000;
-            color: #ff3b30;
-            border: 1.5px solid #ff3b30;
+            background: rgba(0, 229, 255, 0.14);
+            color: #00e5ff;
+            border: 1.5px solid #00e5ff;
             border-radius: 10px;
             padding: 10px 8px;
             font-weight: bold;
-            font-size: 0.8rem;
+            font-size: 0.82rem;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
             gap: 6px;
-            box-shadow: 0 4px 12px rgba(255, 59, 48, 0.25);
+            box-shadow: 0 4px 12px rgba(0, 229, 255, 0.18);
         `;
 
         btnOrux.innerHTML = `
-            <img src="ui-icons/logo_rojo.png" width="18" height="18" style="object-fit: contain; flex-shrink: 0;" alt="OruxMaps">
-            <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Abrir en OruxMaps</span>
+            <img src="ui-icons/fi-rr-share.svg" width="16" height="16" style="filter: brightness(0) saturate(100%) invert(77%) sepia(87%) saturate(1637%) hue-rotate(155deg); object-fit: contain; flex-shrink: 0;" alt="Compartir">
+            <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Compartir</span>
         `;
 
         rowWrapper.appendChild(btnOrux);
@@ -184,93 +178,43 @@ const RouteExporter = {
             return;
         }
 
-        await this.openDirectInOruxMaps(content, filename, format, mimeType);
+        await this.shareTrackFile(content, filename, mimeType);
     },
 
-    // Sube temporalmente el archivo a un host compatible con CORS en navegador para generar una URL directa
-    async uploadTempTrackForOrux(content, filename, mimeType) {
-        const blob = new Blob([content], { type: mimeType });
+    async shareTrackFile(content, filename, mimeType) {
+        const btnShare = document.getElementById("opt-btn-open-orux");
+        const originalHTML = btnShare ? btnShare.innerHTML : "";
 
-        // 1. Intento principal: tmpfiles.org (soporta CORS y devuelve enlace directo de descarga)
+        if (btnShare) {
+            btnShare.disabled = true;
+            btnShare.innerHTML = `<span>Preparando...</span>`;
+        }
+
         try {
-            const fd = new FormData();
-            fd.append("file", blob, filename);
-            const res = await fetch("https://tmpfiles.org/api/v1/upload", {
-                method: "POST",
-                body: fd
-            });
-            if (res.ok) {
-                const json = await res.json();
-                const pageUrl = json?.data?.url;
-                if (typeof pageUrl === "string" && pageUrl.includes("tmpfiles.org/")) {
-                    // Convertir URL de vista en URL directa de descarga: https://tmpfiles.org/dl/ID/archivo.kml
-                    return pageUrl.replace(/^https?:\/\/tmpfiles\.org\//i, "https://tmpfiles.org/dl/");
-                }
+            const fileObj = new File([content], filename, { type: mimeType });
+            if (navigator.canShare && navigator.canShare({ files: [fileObj] })) {
+                document.getElementById("side-panel-planner-options")?.classList.remove("active");
+                await navigator.share({
+                    files: [fileObj],
+                    title: filename
+                });
+                return;
             }
-        } catch (e) {
-            console.warn("tmpfiles.org no disponible:", e);
-        }
-
-        // 2. Respaldo: file.io (soporta CORS desde navegador)
-        try {
-            const fd = new FormData();
-            fd.append("file", blob, filename);
-            const res = await fetch("https://file.io/?expires=1d", {
-                method: "POST",
-                body: fd
-            });
-            if (res.ok) {
-                const json = await res.json();
-                if (json?.success && typeof json?.link === "string") {
-                    return json.link;
-                }
-            }
-        } catch (e) {
-            console.warn("file.io no disponible:", e);
-        }
-
-        throw new Error("No se pudo generar el enlace temporal para OruxMaps");
-    },
-
-    launchDeepLink(url) {
-        const a = document.createElement("a");
-        a.href = url;
-        a.style.display = "none";
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(() => {
-            a.remove();
-        }, 150);
-    },
-
-    async openDirectInOruxMaps(content, filename, format, mimeType) {
-        const btnOrux = document.getElementById("opt-btn-open-orux");
-        const originalHTML = btnOrux ? btnOrux.innerHTML : "";
-
-        if (btnOrux) {
-            btnOrux.disabled = true;
-            btnOrux.innerHTML = `<span>Abriendo...</span>`;
-        }
-        this.showExportNotice(`Enviando ${filename} directo a OruxMaps...`);
-
-        try {
-            const directHttpUrl = await this.uploadTempTrackForOrux(content, filename, mimeType);
-            const oruxTrackDeepLink = directHttpUrl.replace(/^https?:\/\//i, "orux-track://");
-
-            document.getElementById("side-panel-planner-options")?.classList.remove("active");
-            this.launchDeepLink(oruxTrackDeepLink);
-
         } catch (err) {
-            console.warn("Fallo al abrir mediante enlace directo orux-track://:", err);
-            this.showExportNotice("⚠️ No se pudo conectar con el servidor puente; descargando archivo...", true);
-            document.getElementById("side-panel-planner-options")?.classList.remove("active");
-            this.triggerBlobDownload(content, filename, mimeType);
+            if (err && err.name === "AbortError") {
+                return;
+            }
+            console.warn("No se pudo abrir la hoja de compartir nativa:", err);
         } finally {
-            if (btnOrux) {
-                btnOrux.disabled = false;
-                btnOrux.innerHTML = originalHTML;
+            if (btnShare) {
+                btnShare.disabled = false;
+                btnShare.innerHTML = originalHTML;
             }
         }
+
+        this.showExportNotice(`Descargando ${filename}...`);
+        document.getElementById("side-panel-planner-options")?.classList.remove("active");
+        this.triggerBlobDownload(content, filename, mimeType);
     },
 
     hexToKmlColor(hex) {
