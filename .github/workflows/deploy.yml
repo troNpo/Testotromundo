@@ -25,22 +25,19 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Inyectar API Keys en estilos
-        env:
-          MAPTILER_API_KEY: ${{ secrets.MAPTILER_API_KEY }}
-          MAPTILER_TOPO_API_KEY: ${{ secrets.MAPTILER_TOPO_API_KEY }}
-          THUNDERFOREST_API_KEY: ${{ secrets.THUNDERFOREST_API_KEY }}
         run: |
           if [ -f "styles/otromundo.json" ]; then
-            sed -i "s|{{API_KEY}}|${MAPTILER_API_KEY}|g" styles/otromundo.json
+            sed -i "s|{{API_KEY}}|${{ secrets.MAPTILER_API_KEY }}|g" styles/otromundo.json
           fi
           if [ -f "styles/otromundotopo.json" ]; then
-            sed -i "s|{{TOPO_API_KEY}}|${MAPTILER_TOPO_API_KEY}|g" styles/otromundotopo.json
+            sed -i "s|{{TOPO_API_KEY}}|${{ secrets.MAPTILER_TOPO_API_KEY }}|g" styles/otromundotopo.json
           fi
-          for tf_file in styles/thunderforest-outdoors.json styles/thunderforest-opencyclemap.json; do
-            if [ -f "$tf_file" ]; then
-              sed -i "s|{{THUNDERFOREST_API_KEY}}|${THUNDERFOREST_API_KEY}|g" "$tf_file"
-            fi
-          done
+          if [ -f "styles/thunderforest-outdoors.json" ]; then
+            sed -i "s|{{THUNDERFOREST_API_KEY}}|${{ secrets.THUNDERFOREST_API_KEY }}|g" styles/thunderforest-outdoors.json
+          fi
+          if [ -f "styles/thunderforest-opencyclemap.json" ]; then
+            sed -i "s|{{THUNDERFOREST_API_KEY}}|${{ secrets.THUNDERFOREST_API_KEY }}|g" styles/thunderforest-opencyclemap.json
+          fi
 
       - name: Configurar Pages
         uses: actions/configure-pages@v5
