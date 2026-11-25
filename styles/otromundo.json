@@ -1675,6 +1675,74 @@
       }
     },
     {
+"id": "Trail labels",
+"type": "symbol",
+"metadata": {},
+"source": "outdoor",
+"source-layer": "trail",
+"minzoom": 16,
+"filter": [
+"all",
+["==", ["geometry-type"], "LineString"],
+[
+"all",
+[
+"match",
+["get", "color"],
+[
+"black",
+"blue",
+"brown",
+"green",
+"orange",
+"purple",
+"red",
+"yellow"
+],
+true,
+false
+],
+["match", ["get", "class"], ["hiking"], true, false]
+]
+],
+"layout": {
+"symbol-placement": "line",
+"text-anchor": "center",
+"text-field": ["coalesce", ["get", "name:en"], ["get", "name"]],
+"text-font": ["Open Sans Semi Bold", "Noto Sans Semi Bold"],
+"text-letter-spacing": 0,
+"text-size": ["interpolate", ["linear"], ["zoom"], 14, 10, 16, 11],
+"visibility": "visible"
+},
+"paint": {
+"icon-opacity": 1,
+"text-color": [
+"match",
+["get", "color"],
+"red",
+"#ff1744",
+"orange",
+"#ff6d00",
+"yellow",
+"#ffea00",
+"green",
+"#00e676",
+"blue",
+"#00b0ff",
+"purple",
+"#d500f9",
+"brown",
+"#d35400",
+"black",
+"#111111",
+"#ffaa00"
+],
+"text-halo-color": "hsl(9, 0%, 100%)",
+"text-halo-width": 2,
+"text-opacity": 1
+}
+},
+    {
       "id": "Bicycle longdistance",
       "type": "line",
       "source": "outdoor",

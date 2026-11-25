@@ -1,7 +1,32 @@
 window.PLANNER_CHANGELOG_DATA = {
-    "version": "V1.3.2.",
+    "version": "V1.3.3",
     "title": "Novedades en OtroMundo",
     "sections": [
+        {
+            "isHeader": true,
+            "title": "V1.3.3 (25/11/26) - Novedades",
+            "icon": "ui-icons/fi-rr-star.svg"
+        },
+        {
+            "title": "Nuevos estilos OtroMundoTopo y Thunderforest",
+            "desc": "Se incorporan el estilo vectorial OtroMundoTopo y los estilos de Thunderforest (Outdoors y OpenCycleMap)",
+            "icon": "ui-icons/fi-rr-map.svg"
+        },
+        {
+            "title": "Nuevas capas de relieve, pendientes y orientación",
+            "desc": "Se añaden en el panel de mapas capas en tiempo real basadas en DEM para sombreado de relieve (hillshade con dirección e intensidad ajustables), mapa de pendientes en grados (con umbral mínimo, paletas y leyenda) y orientación de laderas (8 rumbos o solana/umbría).",
+            "icon": "ui-icons/fi-rr-mountains.svg"
+        },
+        {
+    "isHeader": true,
+    "title": "V1.3.3 - Mejoras",
+    "icon": "ui-icons/fi-rr-tools.svg"
+},
+{
+    "title": "Etiquetas dd rutas",
+    "desc": "Se añaden las etiquetas de rutas de senderismo a los senderos registrados .",
+    "icon": "ui-icons/fi-rr-map.svg"
+},
         {
             "isHeader": true,
             "title": "V1.3.2 (23/11/26) - Novedades",
@@ -23,8 +48,8 @@ window.PLANNER_CHANGELOG_DATA = {
             "icon": "ui-icons/fi-rr-tools.svg"
         },
         {
-            "title": "Compartir archivos de ruta además de descargar",
-            "desc": "Se añade la opción de compartir directamente los tracks exportados (KML o GPX) desde el menú nativo del dispositivo junto a la descarga tradicional del archivo.",
+            "title": "Opción Compartir en exportación de rutas",
+            "desc": "Se incorpora el botón Compartir junto a la descarga del archivo para enviar directamente el track generado (KML o GPX) a OruxMaps, aplicaciones de mensajería o gestor de archivos mediante el menú nativo del dispositivo.",
             "icon": "ui-icons/fi-rr-share.svg"
         },
         {

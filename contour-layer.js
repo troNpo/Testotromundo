@@ -5,6 +5,7 @@
 const ContourLayerManager = {
     isEnabled: false,
     demSource: null,
+    demUrlTemplate: "https://tiles.mapterhorn.com/{z}/{x}/{y}.webp",
     settings: {
         minorStep: 20,      // Equidistancia curvas normales (m)
         majorStep: 100,     // Equidistancia curvas maestras (m)
@@ -16,6 +17,68 @@ const ContourLayerManager = {
     init() {
         this.loadSavedSettings();
         this.ensureLibraryAndStart();
+    },
+
+    // Construye o recupera el DemSource de Mapterhorn para maplibre-contour
+    getOrCreateDemSource(mapObj) {
+        if (!window.mlcontour) return null;
+
+        if (!this.demSource) {
+            const demUrl = this.getMapterhornDemUrl(mapObj);
+            this.demSource = new window.mlcontour.DemSource({
+                url: demUrl,
+                encoding: "terrarium",
+                maxzoom: 14,
+                worker: true,
+                cacheSize: 100,
+                timeoutMs: 10000
+            });
+            this.demSource.setupMaplibre(maplibregl);
+        }
+
+        return this.demSource;
+    },
+
+    // Genera la URL de protocolo contour:// según la equidistancia configurada
+    getContourTileUrl() {
+        if (!this.demSource) return null;
+
+        return this.demSource.contourProtocolUrl({
+            multiplier: 1,
+            thresholds: {
+                11: [this.settings.majorStep, this.settings.majorStep * 5],
+                12: [this.settings.minorStep * 2, this.settings.majorStep],
+                13: [this.settings.minorStep, this.settings.majorStep],
+                15: [this.settings.minorStep, this.settings.majorStep]
+            },
+            contourLayer: "contours",
+            elevationKey: "ele",
+            levelKey: "level"
+        });
+    },
+
+    // Registra el protocolo y expone la URL actual para la superposición JS
+    registerGlobalContourSource(mapObj) {
+        const dem = this.getOrCreateDemSource(mapObj);
+        if (!dem) return null;
+
+        const contourTileUrl = this.getContourTileUrl();
+        window.OTROMUNDO_CONTOUR_TILE_URL = contourTileUrl;
+        return contourTileUrl;
+    },
+
+    // Aplica o limpia la superposición de curvas según el estado del interruptor en la UI
+    syncWithStyle(mapObj) {
+        if (!mapObj) return;
+
+        const tileUrl = this.registerGlobalContourSource(mapObj);
+        if (!tileUrl) return;
+
+        if (this.isEnabled) {
+            this.applyContourLayers();
+        } else {
+            this.removeContourLayers();
+        }
     },
 
     loadSavedSettings() {
@@ -105,7 +168,7 @@ const ContourLayerManager = {
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 2px;">
                         <span style="font-size: 0.88rem; font-weight: bold; color: #fff;">Curvas de Nivel</span>
-                        <span style="font-size: 0.72rem; color: #aaa;">Relieve topográfico vectorial</span>
+                        <span style="font-size: 0.72rem; color: #aaa;">Superposición DEM en cualquier mapa</span>
                     </div>
                 </div>
 
@@ -137,12 +200,14 @@ const ContourLayerManager = {
                 <!-- Color de las curvas -->
                 <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
                     <span style="font-size: 0.78rem; color: #ccc;">Color de trazado:</span>
-                    <div style="display: flex; align-items: center; gap: 6px;">
-                        <button type="button" class="contour-color-preset" data-color="#d97724" title="Siena Topográfico" style="width: 20px; height: 20px; border-radius: 50%; background: #d97724; border: 2px solid #fff; cursor: pointer; padding: 0;"></button>
-                        <button type="button" class="contour-color-preset" data-color="#00e5ff" title="Cian OtroMundo" style="width: 20px; height: 20px; border-radius: 50%; background: #00e5ff; border: 1.5px solid rgba(255,255,255,0.4); cursor: pointer; padding: 0;"></button>
-                        <button type="button" class="contour-color-preset" data-color="#ffffff" title="Blanco (Ideal Satélite)" style="width: 20px; height: 20px; border-radius: 50%; background: #ffffff; border: 1.5px solid rgba(255,255,255,0.4); cursor: pointer; padding: 0;"></button>
-                        <button type="button" class="contour-color-preset" data-color="#3e2723" title="Marrón Oscuro" style="width: 20px; height: 20px; border-radius: 50%; background: #3e2723; border: 1.5px solid rgba(255,255,255,0.4); cursor: pointer; padding: 0;"></button>
-                        <input type="color" id="contour-color-picker" value="${this.settings.color}" title="Color personalizado" style="width: 24px; height: 24px; border: none; background: transparent; cursor: pointer; padding: 0;">
+                    <div style="display: flex; align-items: center; gap: 5px; flex-wrap: wrap; justify-content: flex-end;">
+                        <button type="button" class="contour-color-preset" data-color="#b85d19" title="Siena IGN Topográfico" style="width: 19px; height: 19px; border-radius: 50%; background: #b85d19; border: 1.5px solid rgba(255,255,255,0.5); cursor: pointer; padding: 0;"></button>
+                        <button type="button" class="contour-color-preset" data-color="#c68b2c" title="Ocre Alpino" style="width: 19px; height: 19px; border-radius: 50%; background: #c68b2c; border: 1.5px solid rgba(255,255,255,0.5); cursor: pointer; padding: 0;"></button>
+                        <button type="button" class="contour-color-preset" data-color="#4e342e" title="Marrón Tierra" style="width: 19px; height: 19px; border-radius: 50%; background: #4e342e; border: 1.5px solid rgba(255,255,255,0.5); cursor: pointer; padding: 0;"></button>
+                        <button type="button" class="contour-color-preset" data-color="#2e7d6b" title="Verde Bosque / Valle" style="width: 19px; height: 19px; border-radius: 50%; background: #2e7d6b; border: 1.5px solid rgba(255,255,255,0.5); cursor: pointer; padding: 0;"></button>
+                        <button type="button" class="contour-color-preset" data-color="#00b8d4" title="Azul Glaciar / Cota" style="width: 19px; height: 19px; border-radius: 50%; background: #00b8d4; border: 1.5px solid rgba(255,255,255,0.5); cursor: pointer; padding: 0;"></button>
+                        <button type="button" class="contour-color-preset" data-color="#ffffff" title="Blanco (Satélite / Nieve)" style="width: 19px; height: 19px; border-radius: 50%; background: #ffffff; border: 1.5px solid rgba(255,255,255,0.5); cursor: pointer; padding: 0;"></button>
+                        <input type="color" id="contour-color-picker" value="${this.settings.color}" title="Color personalizado" style="width: 22px; height: 22px; border: none; background: transparent; cursor: pointer; padding: 0;">
                     </div>
                 </div>
 
@@ -224,6 +289,9 @@ const ContourLayerManager = {
                 const chosenColor = btn.dataset.color;
                 this.settings.color = chosenColor;
                 if (colorPicker) colorPicker.value = chosenColor;
+                card.querySelectorAll(".contour-color-preset").forEach(b => {
+                    b.style.border = b === btn ? "2px solid #00e5ff" : "1.5px solid rgba(255,255,255,0.5)";
+                });
                 this.saveSettings();
                 if (this.isEnabled) this.updatePaintProperties();
             });
@@ -231,6 +299,9 @@ const ContourLayerManager = {
 
         colorPicker?.addEventListener("input", (e) => {
             this.settings.color = e.target.value;
+            card.querySelectorAll(".contour-color-preset").forEach(b => {
+                b.style.border = "1.5px solid rgba(255,255,255,0.5)";
+            });
             this.saveSettings();
             if (this.isEnabled) this.updatePaintProperties();
         });
@@ -253,7 +324,26 @@ const ContourLayerManager = {
     },
 
     // ==========================================
-    // 2. GESTIÓN DE CAPAS EN MAPLIBRE GL JS
+    // 2. RESOLVER FUENTE MAPTERHORN DEM DEL ESTILO O DEL PROYECTO
+    // ==========================================
+    getMapterhornDemUrl(mapObj) {
+        const sources = mapObj?.getStyle?.()?.sources || {};
+        for (const srcDef of Object.values(sources)) {
+            if (!srcDef) continue;
+            const tiles = Array.isArray(srcDef.tiles) ? srcDef.tiles : [];
+            const mapterhornTile = tiles.find(u => typeof u === "string" && u.includes("tiles.mapterhorn.com"));
+            if (mapterhornTile) {
+                return mapterhornTile;
+            }
+            if (typeof srcDef.url === "string" && srcDef.url.includes("tiles.mapterhorn.com")) {
+                return srcDef.url;
+            }
+        }
+        return this.demUrlTemplate;
+    },
+
+    // ==========================================
+    // 3. GESTIÓN DE CAPAS EN MAPLIBRE GL JS
     // ==========================================
     setupMapListeners() {
         const waitForMap = setInterval(() => {
@@ -262,30 +352,16 @@ const ContourLayerManager = {
                 clearInterval(waitForMap);
 
                 const initDemProtocol = () => {
-                    if (!this.demSource && window.mlcontour) {
-                        this.demSource = new window.mlcontour.DemSource({
-                            url: "https://tiles.mapterhorn.com/{z}/{x}/{y}.webp",
-                            encoding: "terrarium",
-                            maxzoom: 14,
-                            worker: true,
-                            cacheSize: 100,
-                            timeoutMs: 10000
-                        });
-                        this.demSource.setupMaplibre(maplibregl);
-                    }
+                    this.syncWithStyle(mapObj);
                 };
 
-                initDemProtocol();
-
-                if (mapObj.isStyleLoaded() && this.isEnabled) {
-                    this.applyContourLayers();
+                if (mapObj.isStyleLoaded()) {
+                    initDemProtocol();
                 }
 
                 mapObj.on("style.load", () => {
-                    initDemProtocol();
-                    if (this.isEnabled) {
-                        setTimeout(() => this.applyContourLayers(), 220);
-                    }
+                    this.demSource = null;
+                    setTimeout(() => initDemProtocol(), 220);
                 });
             }
         }, 150);
@@ -295,6 +371,7 @@ const ContourLayerManager = {
         const layers = mapObj.getStyle()?.layers || [];
         for (const layer of layers) {
             if (
+                layer.id === "otromundo-imported-track-ref-layer" ||
                 layer.id.startsWith("inactive-alt-") ||
                 layer.id.startsWith("active-segment-") ||
                 layer.id === "planned-route-arrows" ||
@@ -308,22 +385,12 @@ const ContourLayerManager = {
 
     applyContourLayers() {
         const mapObj = window.map;
-        if (!mapObj || !this.demSource) return;
+        if (!mapObj) return;
+
+        const tileUrl = this.registerGlobalContourSource(mapObj);
+        if (!tileUrl) return;
 
         this.removeContourLayers();
-
-        const tileUrl = this.demSource.contourProtocolUrl({
-            multiplier: 1,
-            thresholds: {
-                11: [this.settings.majorStep, this.settings.majorStep * 5],
-                12: [this.settings.minorStep * 2, this.settings.majorStep],
-                13: [this.settings.minorStep, this.settings.majorStep],
-                15: [this.settings.minorStep, this.settings.majorStep]
-            },
-            contourLayer: "contours",
-            elevationKey: "ele",
-            levelKey: "level"
-        });
 
         mapObj.addSource("otromundo-contour-source", {
             type: "vector",
@@ -332,6 +399,8 @@ const ContourLayerManager = {
         });
 
         const beforeId = this.getBeforeLayerId(mapObj);
+        const haloColor = this.getContrastHaloColor(this.settings.color);
+        const styleFonts = mapObj.getStyle()?.glyphs ? ["Stadia Semibold"] : ["Open Sans Regular", "Arial Unicode MS Regular"];
 
         mapObj.addLayer(
             {
@@ -339,11 +408,16 @@ const ContourLayerManager = {
                 type: "line",
                 source: "otromundo-contour-source",
                 "source-layer": "contours",
+                minzoom: 11,
                 filter: ["==", ["get", "level"], 0],
+                layout: {
+                    "line-join": "round",
+                    "line-cap": "round"
+                },
                 paint: {
                     "line-color": this.settings.color,
-                    "line-width": ["interpolate", ["linear"], ["zoom"], 11, 0.5, 15, 1.0],
-                    "line-opacity": this.settings.opacity * 0.65
+                    "line-width": ["interpolate", ["linear"], ["zoom"], 11, 0.5, 14, 1.0],
+                    "line-opacity": this.settings.opacity * 0.7
                 }
             },
             beforeId
@@ -355,51 +429,41 @@ const ContourLayerManager = {
                 type: "line",
                 source: "otromundo-contour-source",
                 "source-layer": "contours",
+                minzoom: 11,
                 filter: ["==", ["get", "level"], 1],
+                layout: {
+                    "line-join": "round",
+                    "line-cap": "round"
+                },
                 paint: {
                     "line-color": this.settings.color,
-                    "line-width": ["interpolate", ["linear"], ["zoom"], 11, 1.1, 15, 2.0],
+                    "line-width": ["interpolate", ["linear"], ["zoom"], 11, 1.1, 14, 2.0],
                     "line-opacity": this.settings.opacity
                 }
             },
             beforeId
         );
 
-        const currentStyle = mapObj.getStyle();
-        if (!currentStyle.glyphs) {
-            mapObj.setGlyphs("https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf");
-        }
-
-        let resolvedFont = ["Noto Sans Regular"];
-        const existingSymbolLayer = (currentStyle.layers || []).find(
-            l => l.type === "symbol" && l.layout && Array.isArray(l.layout["text-font"])
-        );
-        if (existingSymbolLayer && currentStyle.glyphs) {
-            resolvedFont = existingSymbolLayer.layout["text-font"];
-        }
-
         mapObj.addLayer(
             {
-                id: "otromundo-contour-labels",
+                id: "otromundo-contour-label",
                 type: "symbol",
                 source: "otromundo-contour-source",
                 "source-layer": "contours",
+                minzoom: 12.5,
                 filter: ["==", ["get", "level"], 1],
                 layout: {
-                    "visibility": this.settings.showLabels ? "visible" : "none",
+                    visibility: this.settings.showLabels ? "visible" : "none",
                     "symbol-placement": "line",
-                    "symbol-spacing": 110,
-                    "text-max-angle": 65,
+                    "symbol-spacing": 350,
                     "text-field": ["concat", ["to-string", ["get", "ele"]], " m"],
-                    "text-font": resolvedFont,
-                    "text-size": ["interpolate", ["linear"], ["zoom"], 11, 10, 15, 12.5],
-                    "text-padding": 1
+                    "text-font": styleFonts,
+                    "text-size": 10.5
                 },
                 paint: {
                     "text-color": this.settings.color,
-                    "text-halo-color": this.getContrastHaloColor(this.settings.color),
-                    "text-halo-width": 2.2,
-                    "text-opacity": this.settings.opacity
+                    "text-halo-color": haloColor,
+                    "text-halo-width": 1.5
                 }
             },
             beforeId
@@ -409,27 +473,27 @@ const ContourLayerManager = {
     updatePaintProperties() {
         const mapObj = window.map;
         if (!mapObj) return;
+        const haloColor = this.getContrastHaloColor(this.settings.color);
 
         if (mapObj.getLayer("otromundo-contour-minor")) {
             mapObj.setPaintProperty("otromundo-contour-minor", "line-color", this.settings.color);
-            mapObj.setPaintProperty("otromundo-contour-minor", "line-opacity", this.settings.opacity * 0.65);
+            mapObj.setPaintProperty("otromundo-contour-minor", "line-opacity", this.settings.opacity * 0.7);
         }
         if (mapObj.getLayer("otromundo-contour-major")) {
             mapObj.setPaintProperty("otromundo-contour-major", "line-color", this.settings.color);
             mapObj.setPaintProperty("otromundo-contour-major", "line-opacity", this.settings.opacity);
         }
-        if (mapObj.getLayer("otromundo-contour-labels")) {
-            mapObj.setPaintProperty("otromundo-contour-labels", "text-color", this.settings.color);
-            mapObj.setPaintProperty("otromundo-contour-labels", "text-halo-color", this.getContrastHaloColor(this.settings.color));
-            mapObj.setPaintProperty("otromundo-contour-labels", "text-opacity", this.settings.opacity);
+        if (mapObj.getLayer("otromundo-contour-label")) {
+            mapObj.setPaintProperty("otromundo-contour-label", "text-color", this.settings.color);
+            mapObj.setPaintProperty("otromundo-contour-label", "text-halo-color", haloColor);
         }
     },
 
     updateLabelsVisibility() {
         const mapObj = window.map;
-        if (!mapObj || !mapObj.getLayer("otromundo-contour-labels")) return;
+        if (!mapObj || !mapObj.getLayer("otromundo-contour-label")) return;
         mapObj.setLayoutProperty(
-            "otromundo-contour-labels",
+            "otromundo-contour-label",
             "visibility",
             this.settings.showLabels ? "visible" : "none"
         );
@@ -439,7 +503,7 @@ const ContourLayerManager = {
         const mapObj = window.map;
         if (!mapObj) return;
         try {
-            if (mapObj.getLayer("otromundo-contour-labels")) mapObj.removeLayer("otromundo-contour-labels");
+            if (mapObj.getLayer("otromundo-contour-label")) mapObj.removeLayer("otromundo-contour-label");
             if (mapObj.getLayer("otromundo-contour-major")) mapObj.removeLayer("otromundo-contour-major");
             if (mapObj.getLayer("otromundo-contour-minor")) mapObj.removeLayer("otromundo-contour-minor");
             if (mapObj.getSource("otromundo-contour-source")) mapObj.removeSource("otromundo-contour-source");
