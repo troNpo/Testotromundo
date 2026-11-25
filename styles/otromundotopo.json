@@ -176,7 +176,7 @@
   "sources": {
 		
     "landform": {
-      "url": "https://api.maptiler.com/tiles/landform/tiles.json?key={{API_KEY}}",
+      "url": "https://api.maptiler.com/tiles/landform/tiles.json?key={{TOPO_API_KEY}}",
       "type": "vector"
     },
     "maptiler_attribution": {
@@ -184,11 +184,11 @@
       "type": "vector"
     },
     "maptiler_planet_v4": {
-      "url": "https://api.maptiler.com/tiles/v4/tiles.json?key={{API_KEY}}",
+      "url": "https://api.maptiler.com/tiles/v4/tiles.json?key={{TOPO_API_KEY}}",
       "type": "vector"
     },
 		 "outdoor": {
-      "url": "https://api.maptiler.com/tiles/outdoor/tiles.json?key={{API_KEY}}",
+      "url": "https://api.maptiler.com/tiles/outdoor/tiles.json?key={{TOPO_API_KEY}}",
       "type": "vector"
     },
     "terrarium-dem": {
@@ -200,8 +200,8 @@
       "encoding": "terrarium"
 			}
     },
-  "sprite": "https://api.maptiler.com/maps/topo-v4/sprite?key={{API_KEY}}",
-  "glyphs": "https://api.maptiler.com/fonts/{fontstack}/{range}.pbf?key={{API_KEY}}",
+  "sprite": "https://api.maptiler.com/maps/topo-v4/sprite?key={{TOPO_API_KEY}}",
+  "glyphs": "https://api.maptiler.com/fonts/{fontstack}/{range}.pbf?key={{TOPO_API_KEY}}",
       "layers": [
     {
       "id": "Background",
