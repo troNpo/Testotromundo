@@ -228,26 +228,26 @@ const RouteExporter = {
         return toggle ? Boolean(toggle.checked) : true;
     },
 
-    getTurnCommandInfo(cmdCode) {
+       getTurnCommandInfo(cmdCode) {
         const code = parseInt(cmdCode, 10);
         const map = {
-            1: { text: "Continuar recto", sym: "Straight" },
-            2: { text: "Giro suave a la izquierda", sym: "Slight Left" },
-            3: { text: "Giro a la izquierda", sym: "Left" },
-            4: { text: "Giro cerrado a la izquierda", sym: "Sharp Left" },
-            5: { text: "Media vuelta", sym: "U-turn" },
-            6: { text: "Giro cerrado a la derecha", sym: "Sharp Right" },
-            7: { text: "Giro a la derecha", sym: "Right" },
-            8: { text: "Giro suave a la derecha", sym: "Slight Right" },
-            9: { text: "Rotonda: 1.ª salida", sym: "Roundabout" },
-            10: { text: "Rotonda: 2.ª salida", sym: "Roundabout" },
-            11: { text: "Rotonda: 3.ª salida", sym: "Roundabout" },
-            12: { text: "Rotonda: 4.ª salida", sym: "Roundabout" },
-            13: { text: "Rotonda: 5.ª salida", sym: "Roundabout" },
-            14: { text: "Rotonda: 6.ª salida", sym: "Roundabout" },
-            15: { text: "Rotonda: 7.ª salida", sym: "Roundabout" }
+            1: { text: "Continuar recto", sym: "Straight", iconId: 1009 },
+            2: { text: "Giro suave a la izquierda", sym: "Slight Left", iconId: 1011 },
+            3: { text: "Giro a la izquierda", sym: "Left", iconId: 1010 },
+            4: { text: "Giro cerrado a la izquierda", sym: "Sharp Left", iconId: 1012 },
+            5: { text: "Media vuelta", sym: "U-turn", iconId: 1016 },
+            6: { text: "Giro cerrado a la derecha", sym: "Sharp Right", iconId: 1002 },
+            7: { text: "Giro a la derecha", sym: "Right", iconId: 1000 },
+            8: { text: "Giro suave a la derecha", sym: "Slight Right", iconId: 1001 },
+            9: { text: "Rotonda: 1.ª salida", sym: "Roundabout", iconId: 1020 },
+            10: { text: "Rotonda: 2.ª salida", sym: "Roundabout", iconId: 1020 },
+            11: { text: "Rotonda: 3.ª salida", sym: "Roundabout", iconId: 1020 },
+            12: { text: "Rotonda: 4.ª salida", sym: "Roundabout", iconId: 1020 },
+            13: { text: "Rotonda: 5.ª salida", sym: "Roundabout", iconId: 1020 },
+            14: { text: "Rotonda: 6.ª salida", sym: "Roundabout", iconId: 1020 },
+            15: { text: "Rotonda: 7.ª salida", sym: "Roundabout", iconId: 1020 }
         };
-        return map[code] || { text: "Indicacion de giro", sym: "Waypoint" };
+        return map[code] || { text: "Indicacion de giro", sym: "Waypoint", iconId: 1009 };
     },
 
     getHintsFromSource(src) {
@@ -255,6 +255,134 @@ const RouteExporter = {
         const raw = src.voiceHints || src.voice_hints || src.turnHints || src.instructions;
         return Array.isArray(raw) ? raw : [];
     },
+
+    extractRouteTurnHints(planner) {
+        const activeRoute = Array.isArray(planner.routesList)
+            ? planner.routesList[planner.currentRouteIndex || 0]
+            : null;
+        const coords = planner.currentRouteData?.coordinates || activeRoute?.coordinates || [];
+        let hints = this.getHintsFromSource(planner.currentRouteData);
+        if (hints.length === 0) hints = this.getHintsFromSource(activeRoute);
+
+        if ((!Array.isArray(hints) || hints.length === 0) && Array.isArray(planner.segments)) {
+            const combined = [];
+            let offset = 0;
+            planner.segments.forEach((seg, idx) => {
+                const segCoords = Array.isArray(seg.coordinates) ? seg.coordinates : [];
+                const startOffset = offset;
+                if (idx > 0 && offset > 0) {
+                    offset += Math.max(0, segCoords.length - 1);
+                } else {
+                    offset += segCoords.length;
+                }
+                const segHints = this.getHintsFromSource(seg);
+                if (segHints.length > 0) {
+                    segHints.forEach(h => {
+                        if (!Array.isArray(h) || h.length < 2) return;
+                        const localIdx = parseInt(h[0], 10);
+                        const adjIdx = idx === 0 ? localIdx : startOffset + Math.max(0, localIdx - 1);
+                        combined.push([adjIdx, h[1], ...(h.slice(2))]);
+                    });
+                }
+            });
+            hints = combined;
+        }
+
+        if (!Array.isArray(hints) || hints.length === 0 || !Array.isArray(coords) || coords.length === 0) {
+            return [];
+        }
+
+        return hints
+            .map((h) => {
+                if (!Array.isArray(h) || h.length < 2) return null;
+                const coordIdx = Math.max(0, Math.min(coords.length - 1, parseInt(h[0], 10) || 0));
+                const pt = coords[coordIdx];
+                if (!pt || pt[0] === undefined || pt[1] === undefined) return null;
+                const info = this.getTurnCommandInfo(h[1]);
+                const distToNext = h[2] !== undefined && !isNaN(parseFloat(h[2])) ? Math.round(parseFloat(h[2])) : null;
+                const desc = distToNext !== null && distToNext > 0
+                    ? `${info.text} (${distToNext} m)`
+                    : info.text;
+                return {
+                    coordIdx,
+                    lon: pt[0],
+                    lat: pt[1],
+                    ele: pt[2],
+                    cmd: parseInt(h[1], 10),
+                    name: info.text,
+                    desc,
+                    sym: info.sym,
+                    iconId: info.iconId
+                };
+            })
+            .filter(Boolean);
+    },
+
+    buildGpx(filename, planner) {
+        let gpx = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+        gpx += `<gpx version="1.1" creator="Otromundo - PWA" xmlns="http://www.topografix.com/GPX/1/1" xmlns:om="http://www.oruxmaps.com/oruxmapsextensions/1/0">\n`;
+        gpx += `  <metadata>\n`;
+        gpx += `    <name><![CDATA[${filename.replace('.gpx', '')}]]></name>\n`;
+        gpx += `    <time>${new Date().toISOString()}</time>\n`;
+        gpx += `  </metadata>\n`;
+
+        if (planner.points && planner.points.length > 0) {
+            planner.points.forEach((p, idx) => {
+                gpx += `  <wpt lat="${p.coords[1]}" lon="${p.coords[0]}">\n`;
+                if (p.coords[2] !== undefined) gpx += `    <ele>${p.coords[2]}</ele>\n`;
+                gpx += `    <name><![CDATA[${p.name || ('Punto ' + (idx + 1))}]]></name>\n`;
+                gpx += `  </wpt>\n`;
+            });
+        }
+
+        if (this.includeTurnIndicators()) {
+            const turnHints = this.extractRouteTurnHints(planner);
+            turnHints.forEach((turn) => {
+                gpx += `  <wpt lat="${turn.lat}" lon="${turn.lon}">\n`;
+                if (turn.ele !== undefined) gpx += `    <ele>${turn.ele}</ele>\n`;
+                gpx += `    <name><![CDATA[${turn.name}]]></name>\n`;
+                gpx += `    <desc><![CDATA[${turn.desc}]]></desc>\n`;
+                gpx += `    <extensions>\n`;
+                gpx += `      <om:oruxmapsextensions xmlns:om="http://www.oruxmaps.com/oruxmapsextensions/1/0">\n`;
+                gpx += `        <om:ext type="ICON" subtype="0">${turn.iconId}</om:ext>\n`;
+                gpx += `      </om:oruxmapsextensions>\n`;
+                gpx += `    </extensions>\n`;
+                gpx += `  </wpt>\n`;
+            });
+        }
+
+        if (planner.segments && planner.segments.length > 0 && planner.points && planner.points.length >= 2) {
+            gpx += `  <trk>\n`;
+            gpx += `    <name><![CDATA[${filename.replace('.gpx', '')}]]></name>\n`;
+            gpx += `    <trkseg>\n`;
+
+            planner.segments.forEach((seg, sIdx) => {
+                const pStart = planner.points[sIdx]?.coords;
+                const pEnd = planner.points[sIdx + 1]?.coords;
+                if (!pStart || !pEnd) return;
+
+                const isManual = seg.profile === "manual-straight";
+                const subCoords = isManual 
+                    ? [pStart, pEnd] 
+                    : (seg.coordinates && seg.coordinates.length >= 2 ? seg.coordinates : [pStart, pEnd]);
+
+                subCoords.forEach((c, cIdx) => {
+                    if (sIdx > 0 && cIdx === 0) return;
+
+                    gpx += `      <trkpt lat="${c[1]}" lon="${c[0]}">\n`;
+                    if (c[2] !== undefined) gpx += `        <ele>${c[2]}</ele>\n`;
+                    gpx += `      </trkpt>\n`;
+                });
+            });
+
+            gpx += `    </trkseg>\n`;
+            gpx += `  </trk>\n`;
+        }
+
+        gpx += `</gpx>`;
+        return gpx;
+    },
+
 
     extractRouteTurnHints(planner) {
         const activeRoute = Array.isArray(planner.routesList)
@@ -373,6 +501,10 @@ const RouteExporter = {
                     kml += `    <Placemark>\n`;
                     kml += `      <name><![CDATA[${turn.name}]]></name>\n`;
                     kml += `      <description><![CDATA[${turn.desc}]]></description>\n`;
+                    kml += `      <ExtendedData>\n`;
+                    kml += `        <Data name="ICON"><value>${turn.iconId}</value></Data>\n`;
+                    kml += `        <Data name="ICON_SUBTYPE"><value>0</value></Data>\n`;
+                    kml += `      </ExtendedData>\n`;
                     kml += `      <Point>\n`;
                     kml += `        <coordinates>${turn.lon},${turn.lat},${turn.ele || 0}</coordinates>\n`;
                     kml += `      </Point>\n`;
@@ -381,6 +513,7 @@ const RouteExporter = {
                 kml += `  </Folder>\n`;
             }
         }
+
 
         // Carpeta 2: Traza desglosada por Segmentos
         if (planner.segments && planner.segments.length > 0 && planner.points && planner.points.length >= 2) {
