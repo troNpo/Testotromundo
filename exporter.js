@@ -228,7 +228,7 @@ const RouteExporter = {
         return toggle ? Boolean(toggle.checked) : true;
     },
 
-       getTurnCommandInfo(cmdCode) {
+    getTurnCommandInfo(cmdCode) {
         const code = parseInt(cmdCode, 10);
         const map = {
             1: { text: "Continuar recto", sym: "Straight", iconId: 1009 },
@@ -318,133 +318,6 @@ const RouteExporter = {
             .filter(Boolean);
     },
 
-    buildGpx(filename, planner) {
-        let gpx = `<?xml version="1.0" encoding="UTF-8"?>\n`;
-        gpx += `<gpx version="1.1" creator="Otromundo - PWA" xmlns="http://www.topografix.com/GPX/1/1" xmlns:om="http://www.oruxmaps.com/oruxmapsextensions/1/0">\n`;
-        gpx += `  <metadata>\n`;
-        gpx += `    <name><![CDATA[${filename.replace('.gpx', '')}]]></name>\n`;
-        gpx += `    <time>${new Date().toISOString()}</time>\n`;
-        gpx += `  </metadata>\n`;
-
-        if (planner.points && planner.points.length > 0) {
-            planner.points.forEach((p, idx) => {
-                gpx += `  <wpt lat="${p.coords[1]}" lon="${p.coords[0]}">\n`;
-                if (p.coords[2] !== undefined) gpx += `    <ele>${p.coords[2]}</ele>\n`;
-                gpx += `    <name><![CDATA[${p.name || ('Punto ' + (idx + 1))}]]></name>\n`;
-                gpx += `  </wpt>\n`;
-            });
-        }
-
-        if (this.includeTurnIndicators()) {
-            const turnHints = this.extractRouteTurnHints(planner);
-            turnHints.forEach((turn) => {
-                gpx += `  <wpt lat="${turn.lat}" lon="${turn.lon}">\n`;
-                if (turn.ele !== undefined) gpx += `    <ele>${turn.ele}</ele>\n`;
-                gpx += `    <name><![CDATA[${turn.name}]]></name>\n`;
-                gpx += `    <desc><![CDATA[${turn.desc}]]></desc>\n`;
-                gpx += `    <extensions>\n`;
-                gpx += `      <om:oruxmapsextensions xmlns:om="http://www.oruxmaps.com/oruxmapsextensions/1/0">\n`;
-                gpx += `        <om:ext type="ICON" subtype="0">${turn.iconId}</om:ext>\n`;
-                gpx += `      </om:oruxmapsextensions>\n`;
-                gpx += `    </extensions>\n`;
-                gpx += `  </wpt>\n`;
-            });
-        }
-
-        if (planner.segments && planner.segments.length > 0 && planner.points && planner.points.length >= 2) {
-            gpx += `  <trk>\n`;
-            gpx += `    <name><![CDATA[${filename.replace('.gpx', '')}]]></name>\n`;
-            gpx += `    <trkseg>\n`;
-
-            planner.segments.forEach((seg, sIdx) => {
-                const pStart = planner.points[sIdx]?.coords;
-                const pEnd = planner.points[sIdx + 1]?.coords;
-                if (!pStart || !pEnd) return;
-
-                const isManual = seg.profile === "manual-straight";
-                const subCoords = isManual 
-                    ? [pStart, pEnd] 
-                    : (seg.coordinates && seg.coordinates.length >= 2 ? seg.coordinates : [pStart, pEnd]);
-
-                subCoords.forEach((c, cIdx) => {
-                    if (sIdx > 0 && cIdx === 0) return;
-
-                    gpx += `      <trkpt lat="${c[1]}" lon="${c[0]}">\n`;
-                    if (c[2] !== undefined) gpx += `        <ele>${c[2]}</ele>\n`;
-                    gpx += `      </trkpt>\n`;
-                });
-            });
-
-            gpx += `    </trkseg>\n`;
-            gpx += `  </trk>\n`;
-        }
-
-        gpx += `</gpx>`;
-        return gpx;
-    },
-
-
-    extractRouteTurnHints(planner) {
-        const activeRoute = Array.isArray(planner.routesList)
-            ? planner.routesList[planner.currentRouteIndex || 0]
-            : null;
-        const coords = planner.currentRouteData?.coordinates || activeRoute?.coordinates || [];
-        let hints = this.getHintsFromSource(planner.currentRouteData);
-        if (hints.length === 0) hints = this.getHintsFromSource(activeRoute);
-
-        if ((!Array.isArray(hints) || hints.length === 0) && Array.isArray(planner.segments)) {
-            const combined = [];
-            let offset = 0;
-            planner.segments.forEach((seg, idx) => {
-                const segCoords = Array.isArray(seg.coordinates) ? seg.coordinates : [];
-                const startOffset = offset;
-                if (idx > 0 && offset > 0) {
-                    offset += Math.max(0, segCoords.length - 1);
-                } else {
-                    offset += segCoords.length;
-                }
-                const segHints = this.getHintsFromSource(seg);
-                if (segHints.length > 0) {
-                    segHints.forEach(h => {
-                        if (!Array.isArray(h) || h.length < 2) return;
-                        const localIdx = parseInt(h[0], 10);
-                        const adjIdx = idx === 0 ? localIdx : startOffset + Math.max(0, localIdx - 1);
-                        combined.push([adjIdx, h[1], ...(h.slice(2))]);
-                    });
-                }
-            });
-            hints = combined;
-        }
-
-        if (!Array.isArray(hints) || hints.length === 0 || !Array.isArray(coords) || coords.length === 0) {
-            return [];
-        }
-
-        return hints
-            .map((h) => {
-                if (!Array.isArray(h) || h.length < 2) return null;
-                const coordIdx = Math.max(0, Math.min(coords.length - 1, parseInt(h[0], 10) || 0));
-                const pt = coords[coordIdx];
-                if (!pt || pt[0] === undefined || pt[1] === undefined) return null;
-                const info = this.getTurnCommandInfo(h[1]);
-                const distToNext = h[2] !== undefined && !isNaN(parseFloat(h[2])) ? Math.round(parseFloat(h[2])) : null;
-                const desc = distToNext !== null && distToNext > 0
-                    ? `${info.text} (${distToNext} m)`
-                    : info.text;
-                return {
-                    coordIdx,
-                    lon: pt[0],
-                    lat: pt[1],
-                    ele: pt[2],
-                    cmd: parseInt(h[1], 10),
-                    name: info.text,
-                    desc,
-                    sym: info.sym
-                };
-            })
-            .filter(Boolean);
-    },
-
     hexToKmlColor(hex) {
         if (!hex || !hex.startsWith('#') || hex.length < 7) return 'ff00e5ff';
         const r = hex.substring(1, 3);
@@ -514,7 +387,6 @@ const RouteExporter = {
             }
         }
 
-
         // Carpeta 2: Traza desglosada por Segmentos
         if (planner.segments && planner.segments.length > 0 && planner.points && planner.points.length >= 2) {
             kml += `  <Folder>\n`;
@@ -526,8 +398,8 @@ const RouteExporter = {
                 if (!pStart || !pEnd) return;
 
                 const isManual = seg.profile === "manual-straight";
-                const subCoords = isManual 
-                    ? [pStart, pEnd] 
+                const subCoords = isManual
+                    ? [pStart, pEnd]
                     : (seg.coordinates && seg.coordinates.length >= 2 ? seg.coordinates : [pStart, pEnd]);
 
                 const segName = seg.name || `Tramo ${sIdx + 1} (${isManual ? 'Punto a punto' : 'BRouter'})`;
@@ -583,7 +455,11 @@ const RouteExporter = {
                 if (turn.ele !== undefined) gpx += `    <ele>${turn.ele}</ele>\n`;
                 gpx += `    <name><![CDATA[${turn.name}]]></name>\n`;
                 gpx += `    <desc><![CDATA[${turn.desc}]]></desc>\n`;
-                gpx += `    <sym><![CDATA[${turn.sym}]]></sym>\n`;
+                gpx += `    <extensions>\n`;
+                gpx += `      <om:oruxmapsextensions xmlns:om="http://www.oruxmaps.com/oruxmapsextensions/1/0">\n`;
+                gpx += `        <om:ext type="ICON" subtype="0">${turn.iconId}</om:ext>\n`;
+                gpx += `      </om:oruxmapsextensions>\n`;
+                gpx += `    </extensions>\n`;
                 gpx += `  </wpt>\n`;
             });
         }
@@ -599,8 +475,8 @@ const RouteExporter = {
                 if (!pStart || !pEnd) return;
 
                 const isManual = seg.profile === "manual-straight";
-                const subCoords = isManual 
-                    ? [pStart, pEnd] 
+                const subCoords = isManual
+                    ? [pStart, pEnd]
                     : (seg.coordinates && seg.coordinates.length >= 2 ? seg.coordinates : [pStart, pEnd]);
 
                 subCoords.forEach((c, cIdx) => {
