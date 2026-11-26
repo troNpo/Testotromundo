@@ -250,12 +250,19 @@ const RouteExporter = {
         return map[code] || { text: "Indicacion de giro", sym: "Waypoint" };
     },
 
+    getHintsFromSource(src) {
+        if (!src || typeof src !== "object") return [];
+        const raw = src.voiceHints || src.voice_hints || src.turnHints || src.instructions;
+        return Array.isArray(raw) ? raw : [];
+    },
+
     extractRouteTurnHints(planner) {
         const activeRoute = Array.isArray(planner.routesList)
             ? planner.routesList[planner.currentRouteIndex || 0]
             : null;
         const coords = planner.currentRouteData?.coordinates || activeRoute?.coordinates || [];
-        let hints = planner.currentRouteData?.voiceHints || activeRoute?.voiceHints || [];
+        let hints = this.getHintsFromSource(planner.currentRouteData);
+        if (hints.length === 0) hints = this.getHintsFromSource(activeRoute);
 
         if ((!Array.isArray(hints) || hints.length === 0) && Array.isArray(planner.segments)) {
             const combined = [];
@@ -268,8 +275,9 @@ const RouteExporter = {
                 } else {
                     offset += segCoords.length;
                 }
-                if (Array.isArray(seg.voiceHints)) {
-                    seg.voiceHints.forEach(h => {
+                const segHints = this.getHintsFromSource(seg);
+                if (segHints.length > 0) {
+                    segHints.forEach(h => {
                         if (!Array.isArray(h) || h.length < 2) return;
                         const localIdx = parseInt(h[0], 10);
                         const adjIdx = idx === 0 ? localIdx : startOffset + Math.max(0, localIdx - 1);
@@ -375,18 +383,6 @@ const RouteExporter = {
         }
 
         // Carpeta 2: Traza desglosada por Segmentos
-        if (this.includeTurnIndicators()) {
-            const turnHints = this.extractRouteTurnHints(planner);
-            turnHints.forEach((turn) => {
-                gpx += `  <wpt lat="${turn.lat}" lon="${turn.lon}">\n`;
-                if (turn.ele !== undefined) gpx += `    <ele>${turn.ele}</ele>\n`;
-                gpx += `    <name><![CDATA[${turn.name}]]></name>\n`;
-                gpx += `    <desc><![CDATA[${turn.desc}]]></desc>\n`;
-                gpx += `    <sym><![CDATA[${turn.sym}]]></sym>\n`;
-                gpx += `  </wpt>\n`;
-            });
-        }
-
         if (planner.segments && planner.segments.length > 0 && planner.points && planner.points.length >= 2) {
             kml += `  <Folder>\n`;
             kml += `    <name><![CDATA[Traza de Ruta (Mixta)]]></name>\n`;
@@ -443,6 +439,18 @@ const RouteExporter = {
                 gpx += `  <wpt lat="${p.coords[1]}" lon="${p.coords[0]}">\n`;
                 if (p.coords[2] !== undefined) gpx += `    <ele>${p.coords[2]}</ele>\n`;
                 gpx += `    <name><![CDATA[${p.name || ('Punto ' + (idx + 1))}]]></name>\n`;
+                gpx += `  </wpt>\n`;
+            });
+        }
+
+        if (this.includeTurnIndicators()) {
+            const turnHints = this.extractRouteTurnHints(planner);
+            turnHints.forEach((turn) => {
+                gpx += `  <wpt lat="${turn.lat}" lon="${turn.lon}">\n`;
+                if (turn.ele !== undefined) gpx += `    <ele>${turn.ele}</ele>\n`;
+                gpx += `    <name><![CDATA[${turn.name}]]></name>\n`;
+                gpx += `    <desc><![CDATA[${turn.desc}]]></desc>\n`;
+                gpx += `    <sym><![CDATA[${turn.sym}]]></sym>\n`;
                 gpx += `  </wpt>\n`;
             });
         }
