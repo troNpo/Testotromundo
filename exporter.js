@@ -115,9 +115,9 @@ const RouteExporter = {
             radio.addEventListener("change", (e) => {
                 const input = document.getElementById("export-filename-input");
                 if (!input) return;
-                let val = input.value.trim();
+                const val = input.value.trim();
                 const baseName = val.includes('.') ? val.substring(0, val.lastIndexOf('.')) : val;
-                input.value = `${baseName}.${e.target.value}`;
+                input.value = `${baseName || 'otromundo_ruta'}.${e.target.value}`;
             });
         });
 
@@ -224,30 +224,56 @@ const RouteExporter = {
     },
 
     includeTurnIndicators() {
-        const toggle = document.getElementById("toggle-export-turn-indicators");
-        return toggle ? Boolean(toggle.checked) : true;
+        // Activado siempre (el interruptor de la interfaz ya no existe).
+        // Para desactivarlo temporalmente, devuelve false.
+        return true;
     },
 
-    getTurnCommandInfo(cmdCode) {
+    // Códigos de comando de BRouter (VoiceHint.java), tal y como salen en
+    // properties.voicehints[i] = [indexInTrack, command, exitNumber, distanceToNext, angle]
+    //   1 C (recto)   2 TL (izq)      3 TSLL (izq suave)  4 TSHL (izq cerrada)
+    //   5 TR (der)    6 TSLR (der suave) 7 TSHR (der cerrada)
+    //   8 KL (mantener izq)  9 KR (mantener der)
+    //  10 TLU (cambio sentido izq)  11 TRU (cambio sentido der)
+    //  12 OFFR (fuera de ruta)  13 RNDB (rotonda)  14 RNLB (rotonda, tráfico por izq)
+    //  15 TU (180°)  16 BL (beeline)
+    getTurnCommandInfo(cmdCode, exitNumber) {
         const code = parseInt(cmdCode, 10);
+        const exit = Math.abs(parseInt(exitNumber, 10)) || 0;
+
+        // iconId: códigos oficiales de icono de waypoint de OruxMaps (confirmados por su desarrollador):
+        //   1000 izq · 1001 der · 1002 recto · 1003 volver · 1004-1008 desvíos/continuar
+        //   1009-1013 rotonda salida 1-5 · 1014 mantener der · 1015 mantener izq
+        //   1016 ligeramente der · 1017 ligeramente izq · 1018 agudo der · 1019 agudo izq · 1020 rotonda
+        // iconKey: SVG de turn-icons
         const map = {
-            1: { text: "Continuar recto", sym: "Straight", iconId: 1009 },
-            2: { text: "Giro suave a la izquierda", sym: "Slight Left", iconId: 1011 },
-            3: { text: "Giro a la izquierda", sym: "Left", iconId: 1010 },
-            4: { text: "Giro cerrado a la izquierda", sym: "Sharp Left", iconId: 1012 },
-            5: { text: "Media vuelta", sym: "U-turn", iconId: 1016 },
-            6: { text: "Giro cerrado a la derecha", sym: "Sharp Right", iconId: 1002 },
-            7: { text: "Giro a la derecha", sym: "Right", iconId: 1000 },
-            8: { text: "Giro suave a la derecha", sym: "Slight Right", iconId: 1001 },
-            9: { text: "Rotonda: 1.ª salida", sym: "Roundabout", iconId: 1020 },
-            10: { text: "Rotonda: 2.ª salida", sym: "Roundabout", iconId: 1020 },
-            11: { text: "Rotonda: 3.ª salida", sym: "Roundabout", iconId: 1020 },
-            12: { text: "Rotonda: 4.ª salida", sym: "Roundabout", iconId: 1020 },
-            13: { text: "Rotonda: 5.ª salida", sym: "Roundabout", iconId: 1020 },
-            14: { text: "Rotonda: 6.ª salida", sym: "Roundabout", iconId: 1020 },
-            15: { text: "Rotonda: 7.ª salida", sym: "Roundabout", iconId: 1020 }
+            1:  { text: "Continuar recto",              sym: "Straight",     iconId: 1002, iconKey: "continue" },
+            2:  { text: "Giro a la izquierda",          sym: "Left",         iconId: 1000, iconKey: "turn_left" },
+            3:  { text: "Giro suave a la izquierda",    sym: "Slight Left",  iconId: 1017, iconKey: "turn_slight_left" },
+            4:  { text: "Giro cerrado a la izquierda",  sym: "Sharp Left",   iconId: 1019, iconKey: "turn_sharp_left" },
+            5:  { text: "Giro a la derecha",            sym: "Right",        iconId: 1001, iconKey: "turn_right" },
+            6:  { text: "Giro suave a la derecha",      sym: "Slight Right", iconId: 1016, iconKey: "turn_slight_right" },
+            7:  { text: "Giro cerrado a la derecha",    sym: "Sharp Right",  iconId: 1018, iconKey: "turn_sharp_right" },
+            8:  { text: "Mantenerse a la izquierda",    sym: "Slight Left",  iconId: 1015, iconKey: "fork_slight_left" },
+            9:  { text: "Mantenerse a la derecha",      sym: "Slight Right", iconId: 1014, iconKey: "fork_slight_right" },
+            10: { text: "Media vuelta a la izquierda",  sym: "U-turn",       iconId: 1003, iconKey: "uturn" },
+            11: { text: "Media vuelta a la derecha",    sym: "U-turn",       iconId: 1003, iconKey: "uturn" },
+            15: { text: "Media vuelta",                 sym: "U-turn",       iconId: 1003, iconKey: "uturn" }
         };
-        return map[code] || { text: "Indicacion de giro", sym: "Waypoint", iconId: 1009 };
+
+        if (code === 13 || code === 14) {
+            const n = exit > 0 ? exit : 1;
+            // Orux solo tiene iconos de salida 1..5 (1009-1013); más salidas -> rotonda genérica (1020)
+            const iconId = n <= 5 ? 1008 + n : 1020;
+            return {
+                text: exit > 0 ? `Rotonda: ${n}.ª salida` : "Rotonda",
+                sym: "Roundabout",
+                iconId,
+                iconKey: `roundabout_slight_right${Math.min(n, 5)}`
+            };
+        }
+
+        return map[code] || { text: "Indicacion de giro", sym: "Waypoint", iconId: 1002, iconKey: "continue" };
     },
 
     getTurnIconUrl(cmdOrKey) {
@@ -255,22 +281,6 @@ const RouteExporter = {
         const key = String(cmdOrKey ?? "").trim().toLowerCase();
 
         const map = {
-            "1": "continue.svg",
-            "2": "turn_slight_left.svg",
-            "3": "turn_left.svg",
-            "4": "turn_sharp_left.svg",
-            "5": "uturn.svg",
-            "6": "turn_sharp_right.svg",
-            "7": "turn_right.svg",
-            "8": "turn_slight_right.svg",
-            "9": "roundabout_slight_right1.svg",
-            "10": "roundabout_slight_right2.svg",
-            "11": "roundabout_slight_right3.svg",
-            "12": "roundabout_slight_right4.svg",
-            "13": "roundabout_slight_right5.svg",
-            "14": "roundabout_slight_right5.svg",
-            "15": "roundabout_slight_right5.svg",
-
             "arrive": "arrive.svg",
             "close": "close.svg",
             "continue": "continue.svg",
@@ -306,6 +316,25 @@ const RouteExporter = {
         return Array.isArray(raw) ? raw : [];
     },
 
+    mapSegmentHintIndex(localIdx, segIdx, segCoordsLength, combinedLengthSoFar) {
+        const parsedLocal = parseInt(localIdx, 10);
+        if (Number.isNaN(parsedLocal) || parsedLocal < 0) return 0;
+
+        if (segIdx === 0) {
+            return parsedLocal;
+        }
+
+        // En segmentos posteriores (segIdx > 0), el punto 0 coincide con el último punto ya agregado
+        // del tramo anterior (índice combinedLengthSoFar - 1).
+        const junctionIdx = Math.max(0, combinedLengthSoFar - 1);
+        if (parsedLocal === 0) {
+            return junctionIdx;
+        }
+
+        const clampedLocal = Math.min(parsedLocal, Math.max(0, segCoordsLength - 1));
+        return junctionIdx + clampedLocal;
+    },
+
     extractRouteTurnHints(planner) {
         const activeRoute = Array.isArray(planner.routesList)
             ? planner.routesList[planner.currentRouteIndex || 0]
@@ -316,23 +345,24 @@ const RouteExporter = {
 
         if ((!Array.isArray(hints) || hints.length === 0) && Array.isArray(planner.segments)) {
             const combined = [];
-            let offset = 0;
+            let combinedLengthSoFar = 0;
+
             planner.segments.forEach((seg, idx) => {
                 const segCoords = Array.isArray(seg.coordinates) ? seg.coordinates : [];
-                const startOffset = offset;
-                if (idx > 0 && offset > 0) {
-                    offset += Math.max(0, segCoords.length - 1);
-                } else {
-                    offset += segCoords.length;
-                }
                 const segHints = this.getHintsFromSource(seg);
+
                 if (segHints.length > 0) {
                     segHints.forEach(h => {
                         if (!Array.isArray(h) || h.length < 2) return;
-                        const localIdx = parseInt(h[0], 10);
-                        const adjIdx = idx === 0 ? localIdx : startOffset + Math.max(0, localIdx - 1);
+                        const adjIdx = this.mapSegmentHintIndex(h[0], idx, segCoords.length, combinedLengthSoFar);
                         combined.push([adjIdx, h[1], ...(h.slice(2))]);
                     });
+                }
+
+                if (segCoords.length > 0) {
+                    combinedLengthSoFar = idx === 0
+                        ? segCoords.length
+                        : combinedLengthSoFar + Math.max(0, segCoords.length - 1);
                 }
             });
             hints = combined;
@@ -345,27 +375,60 @@ const RouteExporter = {
         return hints
             .map((h) => {
                 if (!Array.isArray(h) || h.length < 2) return null;
-                const coordIdx = Math.max(0, Math.min(coords.length - 1, parseInt(h[0], 10) || 0));
+                const rawIdx = parseInt(h[0], 10);
+                if (Number.isNaN(rawIdx)) return null;
+
+                const coordIdx = Math.max(0, Math.min(coords.length - 1, rawIdx));
                 const pt = coords[coordIdx];
                 if (!pt || pt[0] === undefined || pt[1] === undefined) return null;
-                const info = this.getTurnCommandInfo(h[1]);
-                const distToNext = h[2] !== undefined && !isNaN(parseFloat(h[2])) ? Math.round(parseFloat(h[2])) : null;
-                const desc = distToNext !== null && distToNext > 0
-                    ? `${info.text} (${distToNext} m)`
-                    : info.text;
+
+                const cmd = parseInt(h[1], 10);
+                if (Number.isNaN(cmd)) return null;
+
+                // OFFR (12) y BL (16) no son indicaciones de giro reales
+                if (cmd === 12 || cmd === 16) return null;
+
+                // Formato BRouter: [index, command, exitNumber, distanceToNext, angle]
+                const exitNumber = parseInt(h[2], 10);
+                const info = this.getTurnCommandInfo(cmd, exitNumber);
+
                 return {
                     coordIdx,
                     lon: pt[0],
                     lat: pt[1],
                     ele: pt[2],
-                    cmd: parseInt(h[1], 10),
+                    cmd,
                     name: info.text,
-                    desc,
+                    desc: info.text,
                     sym: info.sym,
-                    iconId: info.iconId
+                    iconId: info.iconId,
+                    iconKey: info.iconKey
                 };
             })
-            .filter(Boolean);
+            .filter(Boolean)
+            .sort((a, b) => a.coordIdx - b.coordIdx)
+            .map((turn, i, arr) => {
+                // Distancia calculada sobre la propia traza hasta la siguiente indicación
+                const next = arr[i + 1];
+                const endIdx = next ? next.coordIdx : coords.length - 1;
+                let d = 0;
+                for (let k = turn.coordIdx; k < endIdx; k++) {
+                    d += this.haversineMeters(coords[k][1], coords[k][0], coords[k + 1][1], coords[k + 1][0]);
+                }
+                d = Math.round(d);
+                if (d > 0) turn.desc = `${turn.name} · ${d} m`;
+                return turn;
+            });
+    },
+
+    haversineMeters(lat1, lon1, lat2, lon2) {
+        const R = 6371000;
+        const toRad = (x) => x * Math.PI / 180;
+        const dLat = toRad(lat2 - lat1);
+        const dLon = toRad(lon2 - lon1);
+        const a = Math.sin(dLat / 2) ** 2 +
+            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+        return 2 * R * Math.asin(Math.sqrt(a));
     },
 
     hexToKmlColor(hex) {
@@ -398,23 +461,23 @@ const RouteExporter = {
             });
         }
 
-        // Definición de Estilos KML de los indicadores de giro (24 SVG en GitHub Pages)
-        let turnHints = [];
-        if (this.includeTurnIndicators()) {
-            turnHints = this.extractRouteTurnHints(planner);
-            if (turnHints.length > 0) {
-                const uniqueCmds = [...new Set(turnHints.map(t => t.cmd))];
-                uniqueCmds.forEach((cmd) => {
-                    kml += `  <Style id="turn_cmd_${cmd}">\n`;
-                    kml += `    <IconStyle>\n`;
-                    kml += `      <scale>0.9</scale>\n`;
-                    kml += `      <Icon>\n`;
-                    kml += `        <href>${this.getTurnIconUrl(cmd)}</href>\n`;
-                    kml += `      </Icon>\n`;
-                    kml += `    </IconStyle>\n`;
-                    kml += `  </Style>\n`;
-                });
-            }
+        // Extraer indicadores de giro una sola vez si el ajuste está activado
+        const turnHints = this.includeTurnIndicators() ? this.extractRouteTurnHints(planner) : [];
+        const definedTurnStyleCmds = new Set();
+
+        if (turnHints.length > 0) {
+            const uniqueKeys = [...new Set(turnHints.map(t => t.iconKey))];
+            uniqueKeys.forEach((key) => {
+                definedTurnStyleCmds.add(key);
+                kml += `  <Style id="turn_${key}">\n`;
+                kml += `    <IconStyle>\n`;
+                kml += `      <scale>0.9</scale>\n`;
+                kml += `      <Icon>\n`;
+                kml += `        <href>${this.getTurnIconUrl(key)}</href>\n`;
+                kml += `      </Icon>\n`;
+                kml += `    </IconStyle>\n`;
+                kml += `  </Style>\n`;
+            });
         }
 
         // Carpeta 1: Waypoints de Ruta
@@ -438,10 +501,13 @@ const RouteExporter = {
             kml += `  <Folder>\n`;
             kml += `    <name><![CDATA[Indicadores de Dirección]]></name>\n`;
             turnHints.forEach((turn) => {
+                const styleTag = definedTurnStyleCmds.has(turn.iconKey)
+                    ? `      <styleUrl>#turn_${turn.iconKey}</styleUrl>\n`
+                    : ``;
                 kml += `    <Placemark>\n`;
                 kml += `      <name><![CDATA[${turn.name}]]></name>\n`;
                 kml += `      <description><![CDATA[${turn.desc}]]></description>\n`;
-                kml += `      <styleUrl>#turn_cmd_${turn.cmd}</styleUrl>\n`;
+                kml += styleTag;
                 kml += `      <ExtendedData>\n`;
                 kml += `        <Data name="ICON"><value>${turn.iconId}</value></Data>\n`;
                 kml += `        <Data name="ICON_SUBTYPE"><value>0</value></Data>\n`;
