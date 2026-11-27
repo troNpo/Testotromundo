@@ -250,6 +250,56 @@ const RouteExporter = {
         return map[code] || { text: "Indicacion de giro", sym: "Waypoint", iconId: 1009 };
     },
 
+    getTurnIconUrl(cmdOrKey) {
+        const baseUrl = "https://tronpo.github.io/otromundo/turn-icons";
+        const key = String(cmdOrKey ?? "").trim().toLowerCase();
+
+        const map = {
+            "1": "continue.svg",
+            "2": "turn_slight_left.svg",
+            "3": "turn_left.svg",
+            "4": "turn_sharp_left.svg",
+            "5": "uturn.svg",
+            "6": "turn_sharp_right.svg",
+            "7": "turn_right.svg",
+            "8": "turn_slight_right.svg",
+            "9": "roundabout_slight_right1.svg",
+            "10": "roundabout_slight_right2.svg",
+            "11": "roundabout_slight_right3.svg",
+            "12": "roundabout_slight_right4.svg",
+            "13": "roundabout_slight_right5.svg",
+            "14": "roundabout_slight_right5.svg",
+            "15": "roundabout_slight_right5.svg",
+
+            "arrive": "arrive.svg",
+            "close": "close.svg",
+            "continue": "continue.svg",
+            "fork": "fork.svg",
+            "fork_slight_left": "fork_slight_left.svg",
+            "fork_slight_right": "fork_slight_right.svg",
+            "fork_straight": "fork_straight.svg",
+            "off_ramp_left": "off_ramp_left.svg",
+            "off_ramp_right": "off_ramp_right.svg",
+            "roundabout_slight_right1": "roundabout_slight_right1.svg",
+            "roundabout_slight_right2": "roundabout_slight_right2.svg",
+            "roundabout_slight_right3": "roundabout_slight_right3.svg",
+            "roundabout_slight_right4": "roundabout_slight_right4.svg",
+            "roundabout_slight_right5": "roundabout_slight_right5.svg",
+            "start": "start.svg",
+            "straight_left": "straight_left.svg",
+            "straight_right": "straight_right.svg",
+            "turn_left": "turn_left.svg",
+            "turn_right": "turn_right.svg",
+            "turn_sharp_left": "turn_sharp_left.svg",
+            "turn_sharp_right": "turn_sharp_right.svg",
+            "turn_slight_left": "turn_slight_left.svg",
+            "turn_slight_right": "turn_slight_right.svg",
+            "uturn": "uturn.svg"
+        };
+
+        return `${baseUrl}/${map[key] || "continue.svg"}`;
+    },
+
     getHintsFromSource(src) {
         if (!src || typeof src !== "object") return [];
         const raw = src.voiceHints || src.voice_hints || src.turnHints || src.instructions;
@@ -348,6 +398,25 @@ const RouteExporter = {
             });
         }
 
+        // Definición de Estilos KML de los indicadores de giro (24 SVG en GitHub Pages)
+        let turnHints = [];
+        if (this.includeTurnIndicators()) {
+            turnHints = this.extractRouteTurnHints(planner);
+            if (turnHints.length > 0) {
+                const uniqueCmds = [...new Set(turnHints.map(t => t.cmd))];
+                uniqueCmds.forEach((cmd) => {
+                    kml += `  <Style id="turn_cmd_${cmd}">\n`;
+                    kml += `    <IconStyle>\n`;
+                    kml += `      <scale>0.9</scale>\n`;
+                    kml += `      <Icon>\n`;
+                    kml += `        <href>${this.getTurnIconUrl(cmd)}</href>\n`;
+                    kml += `      </Icon>\n`;
+                    kml += `    </IconStyle>\n`;
+                    kml += `  </Style>\n`;
+                });
+            }
+        }
+
         // Carpeta 1: Waypoints de Ruta
         if (planner.points && planner.points.length > 0) {
             kml += `  <Folder>\n`;
@@ -365,26 +434,24 @@ const RouteExporter = {
         }
 
         // Carpeta de Indicadores de Dirección (BRouter)
-        if (this.includeTurnIndicators()) {
-            const turnHints = this.extractRouteTurnHints(planner);
-            if (turnHints.length > 0) {
-                kml += `  <Folder>\n`;
-                kml += `    <name><![CDATA[Indicadores de Dirección]]></name>\n`;
-                turnHints.forEach((turn) => {
-                    kml += `    <Placemark>\n`;
-                    kml += `      <name><![CDATA[${turn.name}]]></name>\n`;
-                    kml += `      <description><![CDATA[${turn.desc}]]></description>\n`;
-                    kml += `      <ExtendedData>\n`;
-                    kml += `        <Data name="ICON"><value>${turn.iconId}</value></Data>\n`;
-                    kml += `        <Data name="ICON_SUBTYPE"><value>0</value></Data>\n`;
-                    kml += `      </ExtendedData>\n`;
-                    kml += `      <Point>\n`;
-                    kml += `        <coordinates>${turn.lon},${turn.lat},${turn.ele || 0}</coordinates>\n`;
-                    kml += `      </Point>\n`;
-                    kml += `    </Placemark>\n`;
-                });
-                kml += `  </Folder>\n`;
-            }
+        if (turnHints.length > 0) {
+            kml += `  <Folder>\n`;
+            kml += `    <name><![CDATA[Indicadores de Dirección]]></name>\n`;
+            turnHints.forEach((turn) => {
+                kml += `    <Placemark>\n`;
+                kml += `      <name><![CDATA[${turn.name}]]></name>\n`;
+                kml += `      <description><![CDATA[${turn.desc}]]></description>\n`;
+                kml += `      <styleUrl>#turn_cmd_${turn.cmd}</styleUrl>\n`;
+                kml += `      <ExtendedData>\n`;
+                kml += `        <Data name="ICON"><value>${turn.iconId}</value></Data>\n`;
+                kml += `        <Data name="ICON_SUBTYPE"><value>0</value></Data>\n`;
+                kml += `      </ExtendedData>\n`;
+                kml += `      <Point>\n`;
+                kml += `        <coordinates>${turn.lon},${turn.lat},${turn.ele || 0}</coordinates>\n`;
+                kml += `      </Point>\n`;
+                kml += `    </Placemark>\n`;
+            });
+            kml += `  </Folder>\n`;
         }
 
         // Carpeta 2: Traza desglosada por Segmentos
